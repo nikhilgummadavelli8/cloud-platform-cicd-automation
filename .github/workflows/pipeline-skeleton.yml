@@ -259,9 +259,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Record Stage Start Time
+        id: timing
+        run: |
+          echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+          echo "[TIMING] Build stage started at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
       - name: Generate Immutable Version (Enforcement)
         id: version
         run: |
+          echo "::group::Artifact Versioning"
+          
           # IMMUTABLE versioning based on commit SHA (from docs/artifacts/artifact-standards.md)
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
@@ -291,9 +299,14 @@ jobs:
           echo "🐳 Container image tag: $IMAGE_TAG (immutable, commit-based)"
           echo "🔒 No mutable tags: latest, dev, prod (prohibited)"
           echo "✅ Traceability: Tag links directly to commit ${{ github.sha }}"
+          echo "[METRICS] artifact_version=$VERSION image_tag=$IMAGE_TAG"
+          
+          echo "::endgroup::"
 
       - name: Enforce Immutability (No Mutable Tags)
         run: |
+          echo "::group::Immutability Validation"
+          
           IMAGE_TAG="${{ steps.version.outputs.image_tag }}"
           
           # Prohibited tags (from docs/artifacts/artifact-standards.md)
@@ -308,9 +321,16 @@ jobs:
           done
           
           echo "✅ Image tag '$IMAGE_TAG' is immutable and traceable"
+          echo "[METRICS] immutability_check=passed tag=$IMAGE_TAG"
+          
+          echo "::endgroup::"
 
       - name: Build Container Image (Placeholder)
         run: |
+          echo "::group::Container Build"
+          
+          BUILD_START=$(date +%s)
+          
           echo "============================================"
           echo "BUILD ARTIFACT"
           echo "============================================"
@@ -324,9 +344,17 @@ jobs:
           echo "  - Validate base image is approved"
           echo ""
           echo "✅ Build completed (placeholder)"
+          
+          BUILD_END=$(date +%s)
+          BUILD_DURATION=$((BUILD_END - BUILD_START))
+          echo "[METRICS] build_duration_seconds=$BUILD_DURATION"
+          
+          echo "::endgroup::"
 
       - name: Generate Artifact Metadata (Traceability)
         run: |
+          echo "::group::Artifact Metadata Generation"
+          
           echo "============================================"
           echo "ARTIFACT METADATA GENERATION"
           echo "============================================"
@@ -376,9 +404,14 @@ jobs:
           echo "   - Source: commit SHA, repository, author"
           echo "   - Build: pipeline run ID, timestamp, builder"
           echo "   - Traceability: forward/reverse trace capabilities"
+          echo "[METRICS] metadata_generated=true"
+          
+          echo "::endgroup::"
 
       - name: Validate Metadata Completeness (Enforcement)
         run: |
+          echo "::group::Metadata Validation"
+          
           echo "============================================"
           echo "METADATA VALIDATION"
           echo "============================================"
@@ -405,9 +438,21 @@ jobs:
           
           echo ""
           echo "✅ All required metadata present"
+          echo "[METRICS] metadata_validation=passed"
+          
+          echo "::endgroup::"
+
+      - name: Upload Build Metadata Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: artifact-metadata/manifest.json
+          retention-days: 90
 
       - name: Publish Artifact (Placeholder)
         run: |
+          echo "::group::Artifact Publication"
+          
           echo "============================================"
           echo "ARTIFACT PUBLICATION"
           echo "============================================"
@@ -429,6 +474,19 @@ jobs:
           echo "   - Traceable (linked to commit ${{ github.sha }})"
           echo "   - Auditable (metadata includes build details)"
           echo "   - Ready for deployment to dev, staging, production"
+          echo "[METRICS] artifact_published=true"
+          
+          echo "::endgroup::"
+
+      - name: Record Stage Completion
+        if: always()
+        run: |
+          START_TIME=${{ steps.timing.outputs.start_time }}
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo "[TIMING] Build stage completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "[METRICS] stage=build duration_seconds=$DURATION result=${{ job.status }}"
 
   # ============================================================================
   # STAGE 2: TEST
@@ -780,7 +838,7 @@ jobs:
   verify-dev:
     name: Verify Development
     runs-on: ubuntu-latest
-    needs: [validate, deploy-dev]
+    needs: [validate, build, deploy-dev]
     if: needs.validate.outputs.deploy_to_dev == 'true'
     steps:
       - name: Checkout code
@@ -916,6 +974,15 @@ jobs:
           echo "✅ VERIFICATION PASSED - Deployment successful"
           echo "✅ Artifact eligible for promotion to staging"
 
+      - name: Upload Verification Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-result-dev
+          path: verification-result.json
+          retention-days: 90
+
+
       - name: Rollback on Verification Failure
         if: failure()
         run: |
@@ -949,7 +1016,7 @@ jobs:
   verify-staging:
     name: Verify Staging
     runs-on: ubuntu-latest
-    needs: [validate, deploy-staging]
+    needs: [validate, build, deploy-staging]
     if: needs.validate.outputs.deploy_to_staging == 'true'
     steps:
       - name: Checkout code
@@ -1085,6 +1152,14 @@ jobs:
           echo "✅ VERIFICATION PASSED - Deployment successful"
           echo "✅ Artifact eligible for promotion to production"
 
+      - name: Upload Verification Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-result-staging
+          path: verification-result.json
+          retention-days: 90
+
       - name: Rollback on Verification Failure
         if: failure()
         run: |
@@ -1165,8 +1240,125 @@ jobs:
     needs: [build, test, scan, verify-dev, verify-staging, verify-production]
     if: always()
     steps:
-      - name: Generate Pipeline Summary
+      - name: Generate Comprehensive Run Summary
         run: |
+          echo "::group::Pipeline Run Summary Generation"
+          
+          # Calculate pipeline outcome
+          PIPELINE_RESULT="unknown"
+          if [[ "${{ needs.build.result }}" == "failure" || \
+                "${{ needs.test.result }}" == "failure" || \
+                "${{ needs.scan.result }}" == "failure" || \
+                "${{ needs.verify-dev.result }}" == "failure" || \
+                "${{ needs.verify-staging.result }}" == "failure" || \
+                "${{ needs.verify-production.result }}" == "failure" ]]; then
+            PIPELINE_RESULT="failure"
+          elif [[ "${{ needs.build.result }}" == "success" ]]; then
+            PIPELINE_RESULT="success"
+          else
+            PIPELINE_RESULT="partial"
+          fi
+          
+          # Determine failure stage (if any)
+          FAILURE_STAGE="none"
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            FAILURE_STAGE="build"
+          elif [[ "${{ needs.test.result }}" == "failure" ]]; then
+            FAILURE_STAGE="test"
+          elif [[ "${{ needs.scan.result }}" == "failure" ]]; then
+            FAILURE_STAGE="scan"
+          elif [[ "${{ needs.verify-dev.result }}" == "failure" ]]; then
+            FAILURE_STAGE="verify-dev"
+          elif [[ "${{ needs.verify-staging.result }}" == "failure" ]]; then
+            FAILURE_STAGE="verify-staging"
+          elif [[ "${{ needs.verify-production.result }}" == "failure" ]]; then
+            FAILURE_STAGE="verify-production"
+          fi
+          
+          # Generate comprehensive JSON summary
+          cat > pipeline-run-summary.json << 'EOF'
+          {
+            "pipeline": {
+              "name": "CI/CD Pipeline Skeleton",
+              "version": "${{ env.PIPELINE_VERSION }}",
+              "run_id": "${{ github.run_id }}",
+              "run_number": "${{ github.run_number }}",
+              "run_attempt": "${{ github.run_attempt }}",
+              "run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "trigger": {
+              "event": "${{ github.event_name }}",
+              "branch": "${{ github.ref_name }}",
+              "commit_sha": "${{ github.sha }}",
+              "commit_message": "${{ github.event.head_commit.message }}",
+              "author": "${{ github.actor }}",
+              "timestamp": "${{ github.event.head_commit.timestamp }}"
+            },
+            "execution": {
+              "start_time": "${{ github.event.repository.updated_at }}",
+              "end_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "result": "PIPELINE_RESULT_PLACEHOLDER",
+              "failure_stage": "FAILURE_STAGE_PLACEHOLDER"
+            },
+            "stages": {
+              "build": {
+                "executed": true,
+                "result": "${{ needs.build.result }}",
+                "artifact_tag": "${{ needs.build.outputs.image_tag }}",
+                "artifact_version": "${{ needs.build.outputs.artifact_version }}"
+              },
+              "test": {
+                "executed": true,
+                "result": "${{ needs.test.result }}"
+              },
+              "scan": {
+                "executed": true,
+                "result": "${{ needs.scan.result }}"
+              },
+              "verify-dev": {
+                "executed": "${{ needs.verify-dev.result != 'skipped' }}",
+                "result": "${{ needs.verify-dev.result }}"
+              },
+              "verify-staging": {
+                "executed": "${{ needs.verify-staging.result != 'skipped' }}",
+                "result": "${{ needs.verify-staging.result }}"
+              },
+              "verify-production": {
+                "executed": "${{ needs.verify-production.result != 'skipped' }}",
+                "result": "${{ needs.verify-production.result }}"
+              }
+            },
+            "artifacts": {
+              "image_tag": "${{ needs.build.outputs.image_tag }}",
+              "image_registry": "${{ needs.build.outputs.artifact_registry }}",
+              "artifact_version": "${{ needs.build.outputs.artifact_version }}"
+            },
+            "observability": {
+              "artifacts_uploaded": [
+                "build-metadata",
+                "verification-result-dev",
+                "verification-result-staging",
+                "pipeline-run-summary"
+              ],
+              "metrics_emitted": true,
+              "structured_logging": true
+            }
+          }
+          EOF
+          
+          # Replace placeholders
+          sed -i "s/PIPELINE_RESULT_PLACEHOLDER/$PIPELINE_RESULT/g" pipeline-run-summary.json
+          sed -i "s/FAILURE_STAGE_PLACEHOLDER/$FAILURE_STAGE/g" pipeline-run-summary.json
+          
+          echo "📋 Generated Pipeline Run Summary:"
+          cat pipeline-run-summary.json | jq '.'
+          
+          echo "::endgroup::"
+
+      - name: Display Human-Readable Summary
+        run: |
+          echo "::group::Pipeline Execution Summary"
+          
           echo "============================================"
           echo "PIPELINE EXECUTION SUMMARY"
           echo "============================================"
@@ -1174,16 +1366,35 @@ jobs:
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
           echo "Triggered by: ${{ github.event_name }}"
+          echo "Run ID: ${{ github.run_id }}"
           echo ""
           echo "Stage Results:"
-          echo "  Build:  ${{ needs.build.result }}"
-          echo "  Test:   ${{ needs.test.result }}"
-          echo "  Scan:   ${{ needs.scan.result }}"
+          echo "  Build:              ${{ needs.build.result }}"
+          echo "  Test:               ${{ needs.test.result }}"
+          echo "  Scan:               ${{ needs.scan.result }}"
+          echo "  Verify Dev:         ${{ needs.verify-dev.result }}"
+          echo "  Verify Staging:     ${{ needs.verify-staging.result }}"
+          echo "  Verify Production:  ${{ needs.verify-production.result }}"
           echo ""
-          echo "Enforcement Summary:"
-          echo "  ✅ All mandatory stages executed"
-          echo "  ✅ Stage ordering enforced"
-          echo "  ✅ Branch validation passed"
-          echo "  ✅ Environment mapping applied"
+          echo "Artifacts:"
+          echo "  Image Tag:    ${{ needs.build.outputs.image_tag }}"
+          echo "  Version:      ${{ needs.build.outputs.artifact_version }}"
+          echo "  Registry:     ${{ needs.build.outputs.artifact_registry }}"
+          echo ""
+          echo "Observability:"
+          echo "  ✅ Structured logging enabled"
+          echo "  ✅ Timing metrics captured"
+          echo "  ✅ Audit artifacts uploaded"
+          echo "  ✅  Run summary generated"
           echo ""
           echo "============================================"
+          
+          echo "::endgroup::"
+
+      - name: Upload Pipeline Run Summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-run-summary
+          path: pipeline-run-summary.json
+          retention-days: 365
