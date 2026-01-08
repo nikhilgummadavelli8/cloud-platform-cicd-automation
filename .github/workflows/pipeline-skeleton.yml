@@ -362,39 +362,56 @@ jobs:
           # Required metadata (from docs/artifacts/artifact-standards.md)
           mkdir -p artifact-metadata
           
-          cat > artifact-metadata/manifest.json << EOF
-          {
-            "artifact": {
-              "name": "api-gateway",
-              "version": "${{ steps.version.outputs.version }}",
-              "type": "container-image",
-              "registry": "${{ steps.version.outputs.artifact_registry }}/api-gateway:${{ steps.version.outputs.image_tag }}",
-              "digest": "${{ steps.version.outputs.image_digest }}"
-            },
-            "source": {
-              "repository": "${{ github.repository }}",
-              "repository_url": "https://github.com/${{ github.repository }}",
-              "commit": "${{ github.sha }}",
-              "commit_short": "${{ steps.version.outputs.image_tag }}",
-              "branch": "${{ github.ref_name }}",
-              "commit_message": "${{ github.event.head_commit.message }}",
-              "commit_author": "${{ github.event.head_commit.author.name }}"
-            },
-            "build": {
-              "pipeline_run_id": "${{ github.run_id }}",
-              "pipeline_run_number": "${{ github.run_number }}",
-              "pipeline_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "builder": "GitHub Actions",
-              "runner_os": "${{ runner.os }}"
-            },
-            "traceability": {
-              "forward_trace": "commit → artifact → environment",
-              "reverse_trace": "environment → artifact → commit",
-              "rollback_target": "previous artifact version from deployment history"
-            }
-          }
-          EOF
+          # Use jq to build JSON safely (handles multiline commit messages)
+          jq -n \
+            --arg name "api-gateway" \
+            --arg version "${{ steps.version.outputs.version }}" \
+            --arg type "container-image" \
+            --arg registry "${{ steps.version.outputs.artifact_registry }}/api-gateway:${{ steps.version.outputs.image_tag }}" \
+            --arg digest "${{ steps.version.outputs.image_digest }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg repo_url "https://github.com/${{ github.repository }}" \
+            --arg commit "${{ github.sha }}" \
+            --arg commit_short "${{ steps.version.outputs.image_tag }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg commit_msg "${{ github.event.head_commit.message }}" \
+            --arg commit_author "${{ github.event.head_commit.author.name }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_number "${{ github.run_number }}" \
+            --arg run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg build_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg runner_os "${{ runner.os }}" \
+            '{
+              artifact: {
+                name: $name,
+                version: $version,
+                type: $type,
+                registry: $registry,
+                digest: $digest
+              },
+              source: {
+                repository: $repo,
+                repository_url: $repo_url,
+                commit: $commit,
+                commit_short: $commit_short,
+                branch: $branch,
+                commit_message: $commit_msg,
+                commit_author: $commit_author
+              },
+              build: {
+                pipeline_run_id: $run_id,
+                pipeline_run_number: $run_number,
+                pipeline_url: $run_url,
+                build_timestamp: $build_time,
+                builder: "GitHub Actions",
+                runner_os: $runner_os
+              },
+              traceability: {
+                forward_trace: "commit → artifact → environment",
+                reverse_trace: "environment → artifact → commit",
+                rollback_target: "previous artifact version from deployment history"
+              }
+            }' > artifact-metadata/manifest.json
           
           echo "📋 Artifact Metadata Generated:"
           cat artifact-metadata/manifest.json | jq '.'
@@ -1275,80 +1292,100 @@ jobs:
             FAILURE_STAGE="verify-production"
           fi
           
-          # Generate comprehensive JSON summary
-          cat > pipeline-run-summary.json << 'EOF'
-          {
-            "pipeline": {
-              "name": "CI/CD Pipeline Skeleton",
-              "version": "${{ env.PIPELINE_VERSION }}",
-              "run_id": "${{ github.run_id }}",
-              "run_number": "${{ github.run_number }}",
-              "run_attempt": "${{ github.run_attempt }}",
-              "run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            },
-            "trigger": {
-              "event": "${{ github.event_name }}",
-              "branch": "${{ github.ref_name }}",
-              "commit_sha": "${{ github.sha }}",
-              "commit_message": "${{ github.event.head_commit.message }}",
-              "author": "${{ github.actor }}",
-              "timestamp": "${{ github.event.head_commit.timestamp }}"
-            },
-            "execution": {
-              "start_time": "${{ github.event.repository.updated_at }}",
-              "end_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "result": "PIPELINE_RESULT_PLACEHOLDER",
-              "failure_stage": "FAILURE_STAGE_PLACEHOLDER"
-            },
-            "stages": {
-              "build": {
-                "executed": true,
-                "result": "${{ needs.build.result }}",
-                "artifact_tag": "${{ needs.build.outputs.image_tag }}",
-                "artifact_version": "${{ needs.build.outputs.artifact_version }}"
+          # Generate comprehensive JSON summary using jq (properly escapes multiline strings)
+          jq -n \
+            --arg pipeline_name "CI/CD Pipeline Skeleton" \
+            --arg pipeline_version "${{ env.PIPELINE_VERSION }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_number "${{ github.run_number }}" \
+            --arg run_attempt "${{ github.run_attempt }}" \
+            --arg run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg event "${{ github.event_name }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg commit_sha "${{ github.sha }}" \
+            --arg commit_msg "${{ github.event.head_commit.message }}" \
+            --arg author "${{ github.actor }}" \
+            --arg timestamp "${{ github.event.head_commit.timestamp }}" \
+            --arg start_time "${{ github.event.repository.updated_at }}" \
+            --arg end_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg pipeline_result "$PIPELINE_RESULT" \
+            --arg failure_stage "$FAILURE_STAGE" \
+            --arg build_result "${{ needs.build.result }}" \
+            --arg build_tag "${{ needs.build.outputs.image_tag }}" \
+            --arg build_version "${{ needs.build.outputs.artifact_version }}" \
+            --arg test_result "${{ needs.test.result }}" \
+            --arg scan_result "${{ needs.scan.result }}" \
+            --arg verify_dev_result "${{ needs.verify-dev.result }}" \
+            --arg verify_staging_result "${{ needs.verify-staging.result }}" \
+            --arg verify_prod_result "${{ needs.verify-production.result }}" \
+            --arg artifact_registry "${{ needs.build.outputs.artifact_registry }}" \
+            '{
+              pipeline: {
+                name: $pipeline_name,
+                version: $pipeline_version,
+                run_id: $run_id,
+                run_number: $run_number,
+                run_attempt: $run_attempt,
+                run_url: $run_url
               },
-              "test": {
-                "executed": true,
-                "result": "${{ needs.test.result }}"
+              trigger: {
+                event: $event,
+                branch: $branch,
+                commit_sha: $commit_sha,
+                commit_message: $commit_msg,
+                author: $author,
+                timestamp: $timestamp
               },
-              "scan": {
-                "executed": true,
-                "result": "${{ needs.scan.result }}"
+              execution: {
+                start_time: $start_time,
+                end_time: $end_time,
+                result: $pipeline_result,
+                failure_stage: $failure_stage
               },
-              "verify-dev": {
-                "executed": "${{ needs.verify-dev.result != 'skipped' }}",
-                "result": "${{ needs.verify-dev.result }}"
+              stages: {
+                build: {
+                  executed: true,
+                  result: $build_result,
+                  artifact_tag: $build_tag,
+                  artifact_version: $build_version
+                },
+                test: {
+                  executed: true,
+                  result: $test_result
+                },
+                scan: {
+                  executed: true,
+                  result: $scan_result
+                },
+                "verify-dev": {
+                  executed: ($verify_dev_result != "skipped"),
+                  result: $verify_dev_result
+                },
+                "verify-staging": {
+                  executed: ($verify_staging_result != "skipped"),
+                  result: $verify_staging_result
+                },
+                "verify-production": {
+                  executed: ($verify_prod_result != "skipped"),
+                  result: $verify_prod_result
+                }
               },
-              "verify-staging": {
-                "executed": "${{ needs.verify-staging.result != 'skipped' }}",
-                "result": "${{ needs.verify-staging.result }}"
+              artifacts: {
+                image_tag: $build_tag,
+                image_registry: $artifact_registry,
+                artifact_version: $build_version
               },
-              "verify-production": {
-                "executed": "${{ needs.verify-production.result != 'skipped' }}",
-                "result": "${{ needs.verify-production.result }}"
+              observability: {
+                artifacts_uploaded: [
+                  "build-metadata",
+                  "verification-result-dev",
+                  "verification-result-staging",
+                  "pipeline-run-summary"
+                ],
+                metrics_emitted: true,
+                structured_logging: true
               }
-            },
-            "artifacts": {
-              "image_tag": "${{ needs.build.outputs.image_tag }}",
-              "image_registry": "${{ needs.build.outputs.artifact_registry }}",
-              "artifact_version": "${{ needs.build.outputs.artifact_version }}"
-            },
-            "observability": {
-              "artifacts_uploaded": [
-                "build-metadata",
-                "verification-result-dev",
-                "verification-result-staging",
-                "pipeline-run-summary"
-              ],
-              "metrics_emitted": true,
-              "structured_logging": true
-            }
-          }
-          EOF
-          
-          # Replace placeholders
-          sed -i "s/PIPELINE_RESULT_PLACEHOLDER/$PIPELINE_RESULT/g" pipeline-run-summary.json
-          sed -i "s/FAILURE_STAGE_PLACEHOLDER/$FAILURE_STAGE/g" pipeline-run-summary.json
+            }' > pipeline-run-summary.json
           
           echo "📋 Generated Pipeline Run Summary:"
           cat pipeline-run-summary.json | jq '.'
