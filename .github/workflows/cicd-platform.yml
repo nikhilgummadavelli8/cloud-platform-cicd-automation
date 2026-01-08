@@ -880,9 +880,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate, build, test, scan]
     if: needs.validate.outputs.deploy_to_dev == 'true'
-    environment:
-      name: development
-      url: https://dev.example.com
+    # GitHub Environment Protection (Optional)
+    # Uncomment after creating 'development' environment in GitHub repo settings
+    # environment:
+    #   name: development
+    #   url: https://dev.example.com
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -929,9 +931,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate, build, test, scan]
     if: needs.validate.outputs.deploy_to_staging == 'true'
-    environment:
-      name: staging
-      url: https://staging.example.com
+    # GitHub Environment Protection (Optional)
+    # Uncomment after creating 'staging' environment in GitHub repo settings
+    # environment:
+    #   name: staging
+    #   url: https://staging.example.com
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -969,9 +973,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate, build, test, scan, deploy-staging]
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
-    environment:
-      name: production
-      url: https://prod.example.com
+    # GitHub Environment Protection (REQUIRED for production)
+    # Uncomment after creating 'production' environment with required reviewers
+    # environment:
+    #   name: production
+    #   url: https://prod.example.com
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
