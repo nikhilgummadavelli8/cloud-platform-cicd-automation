@@ -113,12 +113,223 @@ jobs:
           echo "✅ Environment: ${{ inputs.environment }}"
 
   # ============================================================================
+  # PRE-FLIGHT: AZURE ACTIVATION CHECK
+  # ============================================================================
+  azure-preflight:
+    name: Azure Pre-Flight Validation
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    permissions:
+      id-token: write  # Required for OIDC token request
+      contents: read
+    steps:
+      - name: Check Azure Configuration Status
+        run: |
+          echo "============================================"
+          echo "AZURE ACTIVATION PRE-FLIGHT CHECK"
+          echo "============================================"
+          echo ""
+          echo "This job validates that Azure infrastructure is activated"
+          echo "and properly configured before running the CI/CD pipeline."
+          echo ""
+          
+          # Check if required Azure secrets/variables are present
+          MISSING_CONFIG=0
+          
+          echo "Checking required Azure configuration..."
+          echo ""
+          
+          # Check for OIDC configuration (required secrets)
+          if [[ -z "${{ secrets.AZURE_CLIENT_ID }}" ]]; then
+            echo "❌ MISSING: AZURE_CLIENT_ID secret"
+            echo "   This is the Client ID from Terraform output: azure_client_id"
+            MISSING_CONFIG=1
+          else
+            echo "✅ AZURE_CLIENT_ID is configured"
+          fi
+          
+          if [[ -z "${{ secrets.AZURE_TENANT_ID }}" ]]; then
+            echo "❌ MISSING: AZURE_TENANT_ID secret"
+            echo "   This is the Tenant ID from Terraform output: azure_tenant_id"
+            MISSING_CONFIG=1
+          else
+            echo "✅ AZURE_TENANT_ID is configured"
+          fi
+          
+          if [[ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]]; then
+            echo "❌ MISSING: AZURE_SUBSCRIPTION_ID secret"
+            echo "   This is the Subscription ID from Terraform output: azure_subscription_id"
+            MISSING_CONFIG=1
+          else
+            echo "✅ AZURE_SUBSCRIPTION_ID is configured"
+          fi
+          
+          echo ""
+          
+          if [ $MISSING_CONFIG -eq 1 ]; then
+            echo "============================================"
+            echo "❌ AZURE NOT ACTIVATED"
+            echo "============================================"
+            echo ""
+            echo "This platform requires Azure infrastructure to be provisioned."
+            echo ""
+            echo "To activate this platform:"
+            echo "  1. Provision Azure infrastructure: cd infra/terraform && terraform apply"
+            echo "  2. Capture Terraform outputs: terraform output"
+            echo "  3. Configure GitHub secrets (Settings → Secrets):"
+            echo "     - AZURE_CLIENT_ID"
+            echo "     - AZURE_TENANT_ID"
+            echo "     - AZURE_SUBSCRIPTION_ID"
+            echo "     - ACR_LOGIN_SERVER"
+            echo "     - ACR_NAME"
+            echo "     - KEY_VAULT_NAME"
+            echo ""
+            echo "For detailed instructions, see: docs/activation/azure-activation.md"
+            echo ""
+            exit 1
+          fi
+          
+          echo "============================================"
+          echo "✅ AZURE CONFIGURATION PRESENT"
+          echo "============================================"
+          echo ""
+          echo "All required Azure configuration values are present."
+          echo "Proceeding with OIDC authentication validation..."
+
+      - name: Validate Azure OIDC Authentication
+        continue-on-error: true
+        id: azure_auth
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Check Authentication Result
+        run: |
+          if [[ "${{ steps.azure_auth.outcome }}" != "success" ]]; then
+            echo "============================================"
+            echo "❌ AZURE OIDC AUTHENTICATION FAILED"
+            echo "============================================"
+            echo ""
+            echo "The Azure OIDC federation is not configured correctly."
+            echo ""
+            echo "Possible issues:"
+            echo "  1. Federated identity credential not created in Azure AD"
+            echo "  2. Repository/environment mismatch in OIDC subject claim"
+            echo "  3. Incorrect Client ID, Tenant ID, or Subscription ID"
+            echo ""
+            echo "To fix:"
+            echo "  1. Verify Terraform applied successfully: cd infra/terraform && terraform show"
+            echo "  2. Check federated credential in Azure Portal:"
+            echo "     Azure AD → App Registrations → [your-app] → Federated credentials"
+            echo "  3. Verify subject claim matches:"
+            echo "     repo:${{ github.repository }}:environment:<env-name>"
+            echo ""
+            echo "For detailed troubleshooting, see: docs/activation/azure-activation.md"
+            echo ""
+            exit 1
+          fi
+          
+          echo "============================================"
+          echo "✅ AZURE OIDC AUTHENTICATION SUCCESSFUL"
+          echo "============================================"
+          echo ""
+          echo "Successfully authenticated to Azure using OIDC federation."
+          echo "No static credentials were used."
+          echo ""
+      
+      - name: Validate ACR Access
+        continue-on-error: true
+        id: acr_check
+        run: |
+          # Check if ACR secrets are configured
+          if [[ -z "${{ secrets.ACR_NAME }}" ]]; then
+            echo "⚠️  WARNING: ACR_NAME secret not configured"
+            echo "   Container image push will fail without this"
+            echo "   Set from Terraform output: acr_name"
+            exit 0
+          fi
+          
+          if [[ -z "${{ secrets.ACR_LOGIN_SERVER }}" ]]; then
+            echo "⚠️  WARNING: ACR_LOGIN_SERVER secret not configured"
+            echo "   Container image push will fail without this"
+            echo "   Set from Terraform output: acr_login_server"
+            exit 0
+          fi
+          
+          echo "✅ ACR configuration present"
+          echo "   ACR Name: ${{ secrets.ACR_NAME }}"
+          echo "   Login Server: ${{ secrets.ACR_LOGIN_SERVER }}"
+          
+          # Try to authenticate to ACR
+          az acr login --name ${{ secrets.ACR_NAME }} || {
+            echo "❌ Failed to authenticate to ACR"
+            echo "   Check RBAC role assignment: AcrPush"
+            exit 1
+          }
+          
+          echo "✅ ACR authentication successful"
+      
+      - name: Validate Key Vault Access
+        continue-on-error: true
+        id: kv_check
+        run: |
+          # Check if Key Vault secret is configured
+          if [[ -z "${{ secrets.KEY_VAULT_NAME }}" ]]; then
+            echo "⚠️  WARNING: KEY_VAULT_NAME secret not configured"
+            echo "   Secret retrieval will fail without this"
+            echo "   Set from Terraform output: key_vault_name"
+            exit 0
+          fi
+          
+          echo "✅ Key Vault configuration present"
+          echo "   Key Vault Name: ${{ secrets.KEY_VAULT_NAME }}"
+          
+          # Try to list secrets (requires permissions)
+          az keyvault secret list --vault-name ${{ secrets.KEY_VAULT_NAME }} --query "[].name" -o tsv || {
+            echo "❌ Failed to access Key Vault"
+            echo "   Check RBAC role assignment: Key Vault Secrets User"
+            exit 1
+          }
+          
+          echo "✅ Key Vault access successful"
+      
+      - name: Pre-Flight Summary
+        if: always()
+        run: |
+          echo "============================================"
+          echo "AZURE PRE-FLIGHT SUMMARY"
+          echo "============================================"
+          echo ""
+          echo "Authentication: ${{ steps.azure_auth.outcome }}"
+          echo "ACR Access: ${{ steps.acr_check.outcome }}"
+          echo "Key Vault Access: ${{ steps.kv_check.outcome }}"
+          echo ""
+          
+          if [[ "${{ steps.azure_auth.outcome }}" == "success" ]]; then
+            echo "✅ Platform is ACTIVATED and ready for CI/CD operations"
+            echo ""
+            echo "This pipeline will:"
+            echo "  - Use OIDC for Azure authentication (zero static credentials)"
+            echo "  - Push container images to ACR"
+            echo "  - Retrieve secrets from Key Vault"
+            echo "  - Deploy to Azure infrastructure"
+          else
+            echo "❌ Platform activation incomplete"
+            echo ""
+            echo "See: docs/activation/README.md for activation instructions"
+            exit 1
+          fi
+
+
+  # ============================================================================
   # STAGE 0: VALIDATION & ENFORCEMENT
   # ============================================================================
   validate:
     name: Validate Branch and Environment Mapping
     runs-on: ubuntu-latest
-    needs: validate-inputs
+    needs: [validate-inputs, azure-preflight]
     outputs:
       deploy_to_dev: ${{ steps.determine_env.outputs.deploy_to_dev }}
       deploy_to_staging: ${{ steps.determine_env.outputs.deploy_to_staging }}
