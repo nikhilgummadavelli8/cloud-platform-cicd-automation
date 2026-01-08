@@ -1,0 +1,66 @@
+# Example Terraform Variables Configuration
+# Copy this file to terraform.tfvars and fill in your actual values
+# DO NOT commit terraform.tfvars to version control (already in .gitignore)
+
+# ============================================================================
+# REQUIRED: Azure Configuration
+# ============================================================================
+
+# Get this from: az account show --query id -o tsv
+azure_subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Choose an Azure region close to you
+# Common options: eastus, westus2, centralus, westeurope
+azure_location = "eastus"
+
+# ============================================================================
+# OPTIONAL: Resource Naming (defaults provided)
+# ============================================================================
+
+# Prefix for resource names (3-10 lowercase alphanumeric characters)
+resource_prefix = "cicdplatform"
+
+# Resource group name
+resource_group_name = "cicd-platform-rg"
+
+# Environment
+environment = "dev"
+
+# ============================================================================
+# OPTIONAL: GitHub OIDC Configuration (defaults provided)
+# ============================================================================
+
+# Your GitHub organization or username
+github_organization = "nikhilgummadavelli8"
+
+# Repository name (without org prefix)
+github_repository = "cloud-platform-cicd-automation"
+
+# Branch name for OIDC (use "*" to allow any branch)
+github_branch = "main"
+
+# Environment name for OIDC (use "*" to allow any environment)
+# If using GitHub environments, set to "production", "staging", etc.
+github_environment = "*"
+
+# ============================================================================
+# OPTIONAL: Service SKUs (defaults provided)
+# ============================================================================
+
+# ACR SKU: Basic (~$5/mo), Standard (~$20/mo), Premium (~$50/mo)
+acr_sku = "Basic"
+
+# Key Vault SKU: standard or premium
+key_vault_sku = "standard"
+
+# ============================================================================
+# OPTIONAL: Resource Tags (defaults provided)
+# ============================================================================
+
+tags = {
+  Project     = "CICD-Platform"
+  ManagedBy   = "Terraform"
+  Purpose     = "GitHub Actions CI/CD Infrastructure"
+  CostCenter  = "Engineering"
+  Owner       = "YourName"
+}
