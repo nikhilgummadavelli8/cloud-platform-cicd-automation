@@ -34,7 +34,7 @@ jobs:
   # ===========================================================================
   platform-cicd:
     name: Platform CI/CD
-    uses: ./.github/workflows/reusable/cicd-platform.yml
+    uses: ./.github/workflows/cicd-platform.yml
     with:
       # Required: Name of the service
       service_name: "api-gateway"
