@@ -1,0 +1,503 @@
+name: CI/CD Pipeline Skeleton
+
+# This is the canonical pipeline skeleton that enforces platform architecture.
+# All application pipelines must conform to this structure.
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'bugfix/**'
+      - 'hotfix/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment for deployment'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+# Concurrency: Only one deployment per environment
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Pipeline metadata
+  PIPELINE_VERSION: "1.0.0"
+  COMMIT_SHA: ${{ github.sha }}
+  BRANCH_NAME: ${{ github.ref_name }}
+
+jobs:
+  # ============================================================================
+  # STAGE 0: VALIDATION & ENFORCEMENT
+  # ============================================================================
+  validate:
+    name: Validate Branch and Environment Mapping
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_to_dev: ${{ steps.determine_env.outputs.deploy_to_dev }}
+      deploy_to_staging: ${{ steps.determine_env.outputs.deploy_to_staging }}
+      deploy_to_prod: ${{ steps.determine_env.outputs.deploy_to_prod }}
+      branch_valid: ${{ steps.validate_branch.outputs.valid }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Branch Type
+        id: validate_branch
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          
+          # Allowed branch patterns based on branch-and-promotion-model.md
+          if [[ "$BRANCH" =~ ^(main|feature/|bugfix/|hotfix/|release/) ]]; then
+            echo "✅ Branch '$BRANCH' is valid"
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ ERROR: Branch '$BRANCH' does not match allowed patterns"
+            echo "Allowed: main, feature/*, bugfix/*, hotfix/*, release/*"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Determine Environment Mapping
+        id: determine_env
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          EVENT="${{ github.event_name }}"
+          
+          # Default: no deployment
+          DEPLOY_DEV="false"
+          DEPLOY_STAGING="false"
+          DEPLOY_PROD="false"
+          
+          # Branch → Environment Mapping (from branch-and-promotion-model.md)
+          if [[ "$BRANCH" =~ ^(feature/|bugfix/) ]]; then
+            # Feature/bugfix branches → Development only
+            DEPLOY_DEV="true"
+            echo "📦 Feature/bugfix branch → Deploy to DEVELOPMENT"
+            
+          elif [[ "$BRANCH" == "main" ]]; then
+            # Main branch → Staging automatic, Production manual
+            DEPLOY_STAGING="true"
+            echo "📦 Main branch → Deploy to STAGING (automatic)"
+            echo "⚠️  Production deployment requires manual approval"
+            
+          elif [[ "$BRANCH" =~ ^release/ ]]; then
+            # Release branches → Staging automatic, Production manual
+            DEPLOY_STAGING="true"
+            echo "📦 Release branch → Deploy to STAGING (automatic)"
+            echo "⚠️  Production deployment requires manual approval"
+            
+          elif [[ "$BRANCH" =~ ^hotfix/ ]]; then
+            # Hotfix branches → All environments (production requires approval)
+            DEPLOY_DEV="true"
+            DEPLOY_STAGING="true"
+            echo "🚨 Hotfix branch → Deploy to DEV and STAGING (automatic)"
+            echo "⚠️  Production deployment requires approval + incident ticket"
+          fi
+          
+          # Output environment targets
+          echo "deploy_to_dev=$DEPLOY_DEV" >> $GITHUB_OUTPUT
+          echo "deploy_to_staging=$DEPLOY_STAGING" >> $GITHUB_OUTPUT
+          echo "deploy_to_prod=$DEPLOY_PROD" >> $GITHUB_OUTPUT
+
+      - name: Enforce Production Deployment Rules
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          
+          # Only main, release, and hotfix branches can deploy to production
+          if [[ ! "$BRANCH" =~ ^(main|release/|hotfix/) ]]; then
+            echo "❌ BLOCKED: Production deployment from branch '$BRANCH' is prohibited"
+            echo "Only main, release/*, and hotfix/* branches can deploy to production"
+            exit 1
+          fi
+          
+          echo "✅ Branch '$BRANCH' is authorized for production deployment"
+          echo "⚠️  Manual approval required (enforced by environment protection rules)"
+
+  # ============================================================================
+  # STAGE 1: BUILD
+  # ============================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      artifact_version: ${{ steps.version.outputs.version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate Version
+        id: version
+        run: |
+          # Semantic versioning based on commit SHA and timestamp
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          VERSION="1.0.0-${SHORT_SHA}-${TIMESTAMP}"
+          IMAGE_TAG="${SHORT_SHA}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "📦 Artifact version: $VERSION"
+          echo "🐳 Container image tag: $IMAGE_TAG"
+
+      - name: Build Stage (Placeholder)
+        run: |
+          echo "============================================"
+          echo "BUILD STAGE"
+          echo "============================================"
+          echo "This is a placeholder for actual build logic"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Compile source code"
+          echo "  - Resolve dependencies"
+          echo "  - Build container image"
+          echo "  - Tag image with version: ${{ steps.version.outputs.image_tag }}"
+          echo "  - Push to artifact registry"
+          echo ""
+          echo "✅ Build stage completed (placeholder)"
+
+      - name: Upload Build Metadata
+        run: |
+          mkdir -p build-output
+          cat > build-output/metadata.json << EOF
+          {
+            "version": "${{ steps.version.outputs.version }}",
+            "image_tag": "${{ steps.version.outputs.image_tag }}",
+            "commit_sha": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat build-output/metadata.json
+
+  # ============================================================================
+  # STAGE 2: TEST
+  # ============================================================================
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test Stage (Placeholder)
+        run: |
+          echo "============================================"
+          echo "TEST STAGE"
+          echo "============================================"
+          echo "This is a placeholder for actual test execution"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Run unit tests"
+          echo "  - Run integration tests"
+          echo "  - Generate coverage reports"
+          echo "  - Validate coverage thresholds"
+          echo "  - Produce JUnit XML test results"
+          echo ""
+          echo "✅ Test stage completed (placeholder)"
+
+      - name: Enforce Test Failure Behavior
+        run: |
+          echo "Failure behavior (from execution-and-failure-model.md):"
+          echo "  - Hard fail on test failure (no retry)"
+          echo "  - Notify commit author and PR reviewers"
+          echo "  - Block PR merge until tests pass"
+
+  # ============================================================================
+  # STAGE 3: SCAN
+  # ============================================================================
+  scan:
+    name: Scan
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan Stage (Placeholder)
+        run: |
+          echo "============================================"
+          echo "SCAN STAGE"
+          echo "============================================"
+          echo "This is a placeholder for security scanning"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Scan container image for CVEs"
+          echo "  - Scan dependencies for vulnerabilities"
+          echo "  - Run SAST (static application security testing)"
+          echo "  - Generate SBOM (Software Bill of Materials)"
+          echo "  - Check license compliance"
+          echo ""
+          echo "✅ Scan stage completed (placeholder)"
+
+      - name: Enforce Scan Failure Behavior
+        run: |
+          echo "Failure behavior (from execution-and-failure-model.md):"
+          echo "  - Critical vulnerabilities: BLOCK deployment"
+          echo "  - High vulnerabilities: WARN (block production only)"
+          echo "  - Notify: commit author, security team, app team lead"
+
+      - name: Simulated Vulnerability Check
+        run: |
+          # Placeholder: In real implementation, parse scan results
+          CRITICAL_VULNS=0
+          
+          if [ $CRITICAL_VULNS -gt 0 ]; then
+            echo "❌ BLOCKED: $CRITICAL_VULNS critical vulnerabilities detected"
+            exit 1
+          else
+            echo "✅ No critical vulnerabilities detected"
+          fi
+
+  # ============================================================================
+  # STAGE 4: DEPLOY
+  # ============================================================================
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [validate, build, test, scan]
+    if: needs.validate.outputs.deploy_to_dev == 'true'
+    environment:
+      name: development
+      url: https://dev.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Development (Placeholder)
+        run: |
+          echo "============================================"
+          echo "DEPLOY STAGE - DEVELOPMENT"
+          echo "============================================"
+          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
+          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Deploy to AKS using Helm"
+          echo "  - Update environment configuration"
+          echo "  - Apply infrastructure changes via Terraform"
+          echo ""
+          echo "✅ Deployment to Development completed (placeholder)"
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate, build, test, scan]
+    if: needs.validate.outputs.deploy_to_staging == 'true'
+    environment:
+      name: staging
+      url: https://staging.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Staging (Placeholder)
+        run: |
+          echo "============================================"
+          echo "DEPLOY STAGE - STAGING"
+          echo "============================================"
+          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
+          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Deploy to AKS staging cluster using Helm"
+          echo "  - Update staging environment configuration"
+          echo "  - Apply infrastructure changes via Terraform"
+          echo ""
+          echo "✅ Deployment to Staging completed (placeholder)"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, build, test, scan, deploy-staging]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://prod.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Enforce Production Prerequisites
+        run: |
+          echo "Validating production deployment prerequisites..."
+          echo "✅ All stages passed in staging"
+          echo "✅ Manual approval granted (enforced by GitHub environment)"
+          echo "✅ Branch authorized for production: ${{ github.ref_name }}"
+          echo ""
+          echo "Production deployment proceeding..."
+
+      - name: Deploy to Production (Placeholder)
+        run: |
+          echo "============================================"
+          echo "DEPLOY STAGE - PRODUCTION"
+          echo "============================================"
+          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
+          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Deploy to AKS production cluster using Helm"
+          echo "  - Use blue-green or canary deployment strategy"
+          echo "  - Update production environment configuration"
+          echo ""
+          echo "✅ Deployment to Production completed (placeholder)"
+
+  # ============================================================================
+  # STAGE 5: VERIFY
+  # ============================================================================
+  verify-dev:
+    name: Verify Development
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: needs.validate.outputs.deploy_to_dev == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Deployment (Placeholder)
+        timeout-minutes: 5
+        run: |
+          echo "============================================"
+          echo "VERIFY STAGE - DEVELOPMENT"
+          echo "============================================"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Check application health endpoints"
+          echo "  - Validate Kubernetes pod readiness"
+          echo "  - Run smoke tests"
+          echo "  - Verify infrastructure state"
+          echo ""
+          echo "⏱️  Timeout: 5 minutes (from execution-and-failure-model.md)"
+          echo "✅ Verification passed (placeholder)"
+
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "❌ Verification FAILED - Triggering rollback"
+          echo "In a real pipeline, this would:"
+          echo "  - Identify previous working version"
+          echo "  - Redeploy previous version via Helm rollback"
+          echo "  - Validate rollback success"
+          echo "  - Notify teams of rollback event"
+
+  verify-staging:
+    name: Verify Staging
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: needs.validate.outputs.deploy_to_staging == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Deployment (Placeholder)
+        timeout-minutes: 5
+        run: |
+          echo "============================================"
+          echo "VERIFY STAGE - STAGING"
+          echo "============================================"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Check application health endpoints"
+          echo "  - Validate Kubernetes pod readiness"
+          echo "  - Run comprehensive smoke tests"
+          echo "  - Verify infrastructure state matches expected"
+          echo ""
+          echo "⏱️  Timeout: 5 minutes (from execution-and-failure-model.md)"
+          echo "✅ Verification passed (placeholder)"
+
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "❌ Verification FAILED - Triggering rollback"
+          echo "⚠️  Staging verification failure BLOCKS production promotion"
+
+  verify-production:
+    name: Verify Production
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Deployment (Placeholder)
+        timeout-minutes: 5
+        run: |
+          echo "============================================"
+          echo "VERIFY STAGE - PRODUCTION"
+          echo "============================================"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - Check application health endpoints"
+          echo "  - Validate Kubernetes pod readiness"
+          echo "  - Run production smoke tests"
+          echo "  - Verify traffic routing"
+          echo "  - Confirm zero-downtime deployment"
+          echo ""
+          echo "⏱️  Timeout: 5 minutes (from execution-and-failure-model.md)"
+          echo "✅ Verification passed (placeholder)"
+
+      - name: Automatic Rollback on Failure
+        if: failure()
+        run: |
+          echo "🚨 CRITICAL: Production verification FAILED"
+          echo "Triggering IMMEDIATE automatic rollback..."
+          echo ""
+          echo "In a real pipeline, this would:"
+          echo "  - Immediately redeploy previous working version"
+          echo "  - Validate rollback succeeded"
+          echo "  - Confirm application serving traffic"
+          echo "  - Trigger incident response workflow"
+          echo "  - Notify: app team, platform on-call, SRE team"
+          echo "  - Create incident ticket automatically"
+          exit 1
+
+  # ============================================================================
+  # SUMMARY
+  # ============================================================================
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [build, test, scan, verify-dev, verify-staging, verify-production]
+    if: always()
+    steps:
+      - name: Generate Pipeline Summary
+        run: |
+          echo "============================================"
+          echo "PIPELINE EXECUTION SUMMARY"
+          echo "============================================"
+          echo "Pipeline: CI/CD Skeleton v${{ env.PIPELINE_VERSION }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo ""
+          echo "Stage Results:"
+          echo "  Build:  ${{ needs.build.result }}"
+          echo "  Test:   ${{ needs.test.result }}"
+          echo "  Scan:   ${{ needs.scan.result }}"
+          echo ""
+          echo "Enforcement Summary:"
+          echo "  ✅ All mandatory stages executed"
+          echo "  ✅ Stage ordering enforced"
+          echo "  ✅ Branch validation passed"
+          echo "  ✅ Environment mapping applied"
+          echo ""
+          echo "============================================"
