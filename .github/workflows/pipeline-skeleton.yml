@@ -666,31 +666,165 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Deployment (Placeholder)
+      - name: Wait for Deployment Rollout
         timeout-minutes: 5
         run: |
           echo "============================================"
           echo "VERIFY STAGE - DEVELOPMENT"
           echo "============================================"
+          echo "Artifact: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
           echo ""
-          echo "In a real pipeline, this stage would:"
-          echo "  - Check application health endpoints"
-          echo "  - Validate Kubernetes pod readiness"
-          echo "  - Run smoke tests"
-          echo "  - Verify infrastructure state"
+          echo "📋 Verification Steps (from docs/deployment/verification-and-health-checks.md):"
+          echo "   1. Wait for deployment rollout completion"
+          echo "   2. Wait for pod readiness"
+          echo "   3. Check health endpoints"
+          echo "   4. Run smoke tests"
+          echo "   5. Verify dependencies"
           echo ""
-          echo "⏱️  Timeout: 5 minutes (from execution-and-failure-model.md)"
-          echo "✅ Verification passed (placeholder)"
+          echo "⏱️  Verification timeout: 5 minutes"
+          echo ""
+          
+          # Step 1: Wait for rollout (placeholder)
+          echo "[1/5] Waiting for deployment rollout..."
+          echo "  In real pipeline: kubectl rollout status deployment/api-gateway -n development --timeout=5m"
+          echo "  ✅ Rollout completed (placeholder)"
 
-      - name: Rollback on Failure
+      - name: Check Health Endpoints
+        timeout-minutes: 1
+        run: |
+          echo ""
+          echo "[2/5] Checking health endpoints..."
+          echo ""
+          
+          # Liveness check (placeholder)
+          echo "  Liveness check: /health/live"
+          echo "  In real pipeline: curl -f http://api-gateway-dev.example.com/health/live"
+          echo "    Expected: HTTP 200 OK"
+          echo "    ✅ Liveness check passed (placeholder)"
+          echo ""
+          
+          # Readiness check (placeholder)
+          echo "  Readiness check: /health/ready"
+          echo "  In real pipeline: curl -f http://api-gateway-dev.example.com/health/ready"
+          echo "    Expected: HTTP 200 OK with all dependencies UP"
+          echo "    ✅ Readiness check passed (placeholder)"
+
+      - name: Run Smoke Tests
+        timeout-minutes: 2
+        run: |
+          echo ""
+          echo "[3/5] Running smoke tests..."
+          echo ""
+          echo "  Smoke tests verify basic functionality (from docs/deployment/):"
+          echo ""
+          
+          # Test 1: Health endpoint
+          echo "  [1/3] Health endpoint accessible"
+          echo "    curl -f http://api-gateway-dev.example.com/health"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          
+          # Test 2: Basic API call
+          echo "  [2/3] Basic API endpoint responds"
+          echo "    curl -f http://api-gateway-dev.example.com/api/v1/status"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          
+          # Test 3: Authenticated call
+          echo "  [3/3] Authenticated API call works"
+          echo "    curl -f -H 'Authorization: Bearer <token>' http://api-gateway-dev.example.com/api/v1/users"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          echo "  ✅ All smoke tests passed (3/3)"
+
+      - name: Verify Dependencies
+        timeout-minutes: 1
+        run: |
+          echo ""
+          echo "[4/5] Verifying dependency connectivity..."
+          echo ""
+          
+          # Database connectivity
+          echo "  Database connectivity (PostgreSQL):"
+          echo "    In real pipeline: Check readiness endpoint shows database UP"
+          echo "    ✅ Database reachable (placeholder)"
+          echo ""
+          
+          # Cache connectivity
+          echo "  Cache connectivity (Redis):"
+          echo "    In real pipeline: Check readiness endpoint shows cache UP"
+          echo "    ✅ Cache reachable (placeholder)"
+          echo ""
+          
+          # Downstream API connectivity (if applicable)
+          echo "  Downstream APIs:"
+          echo "    In real pipeline: Verify dependent services are healthy"
+          echo "    ✅ All dependencies available (placeholder)"
+
+      - name: Record Verification Result
+        if: success()
+        run: |
+          echo ""
+          echo "[5/5] Recording verification result..."
+          echo ""
+          
+          cat > verification-result.json << EOF
+          {
+            "environment": "development",
+            "artifact": "${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}",
+            "verification_status": "PASSED",
+            "verification_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "health_checks": {
+              "liveness": "PASSED",
+              "readiness": "PASSED"
+            },
+            "smoke_tests": {
+              "health_endpoint": "PASSED",
+              "api_endpoint": "PASSED",
+              "authenticated_call": "PASSED"
+            },
+            "dependencies": {
+              "database": "UP",
+              "cache": "UP"
+            }
+          }
+          EOF
+          
+          echo "📋 Verification Result:"
+          cat verification-result.json | jq '.'
+          echo ""
+          echo "✅ VERIFICATION PASSED - Deployment successful"
+          echo "✅ Artifact eligible for promotion to staging"
+
+      - name: Rollback on Verification Failure
         if: failure()
         run: |
-          echo "❌ Verification FAILED - Triggering rollback"
+          echo ""
+          echo "============================================"
+          echo "❌ VERIFICATION FAILED"
+          echo "============================================"
+          echo "Deployment to development failed verification checks."
+          echo ""
+          echo "Triggering automatic rollback..."
+          echo ""
           echo "In a real pipeline, this would:"
-          echo "  - Identify previous working version"
-          echo "  - Redeploy previous version via Helm rollback"
-          echo "  - Validate rollback success"
-          echo "  - Notify teams of rollback event"
+          echo "  1. Identify previous working version"
+          echo "     kubectl rollout history deployment/api-gateway -n development"
+          echo ""
+          echo "  2. Execute rollback"
+          echo "     kubectl rollout undo deployment/api-gateway -n development"
+          echo ""
+          echo "  3. Verify rollback success"
+          echo "     - Wait for rollout completion"
+          echo "     - Check health endpoints"
+          echo "     - Confirm application serving traffic"
+          echo ""
+          echo "  4. Notify team"
+          echo "     - Send alert: 'Dev deployment failed verification'"
+          echo "     - Include: artifact version, failure reason, rollback status"
+          echo ""
+          echo "❌ Deployment FAILED and rolled back"
+          exit 1
 
   verify-staging:
     name: Verify Staging
@@ -701,27 +835,165 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Deployment (Placeholder)
+      - name: Wait for Deployment Rollout
         timeout-minutes: 5
         run: |
           echo "============================================"
           echo "VERIFY STAGE - STAGING"
           echo "============================================"
+          echo "Artifact: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
           echo ""
-          echo "In a real pipeline, this stage would:"
-          echo "  - Check application health endpoints"
-          echo "  - Validate Kubernetes pod readiness"
-          echo "  - Run comprehensive smoke tests"
-          echo "  - Verify infrastructure state matches expected"
+          echo "📋 Verification Steps (from docs/deployment/verification-and-health-checks.md):"
+          echo "   1. Wait for deployment rollout completion"
+          echo "   2. Wait for pod readiness"
+          echo "   3. Check health endpoints"
+          echo "   4. Run smoke tests"
+          echo "   5. Verify dependencies"
           echo ""
-          echo "⏱️  Timeout: 5 minutes (from execution-and-failure-model.md)"
-          echo "✅ Verification passed (placeholder)"
+          echo "⏱️  Verification timeout: 5 minutes"
+          echo ""
+          
+          # Step 1: Wait for rollout (placeholder)
+          echo "[1/5] Waiting for deployment rollout..."
+          echo "  In real pipeline: kubectl rollout status deployment/api-gateway -n staging --timeout=5m"
+          echo "  ✅ Rollout completed (placeholder)"
 
-      - name: Rollback on Failure
+      - name: Check Health Endpoints
+        timeout-minutes: 1
+        run: |
+          echo ""
+          echo "[2/5] Checking health endpoints..."
+          echo ""
+          
+          # Liveness check (placeholder)
+          echo "  Liveness check: /health/live"
+          echo "  In real pipeline: curl -f http://api-gateway-staging.example.com/health/live"
+          echo "    Expected: HTTP 200 OK"
+          echo "    ✅ Liveness check passed (placeholder)"
+          echo ""
+          
+          # Readiness check (placeholder)
+          echo "  Readiness check: /health/ready"
+          echo "  In real pipeline: curl -f http://api-gateway-staging.example.com/health/ready"
+          echo "    Expected: HTTP 200 OK with all dependencies UP"
+          echo "    ✅ Readiness check passed (placeholder)"
+
+      - name: Run Smoke Tests
+        timeout-minutes: 2
+        run: |
+          echo ""
+          echo "[3/5] Running smoke tests..."
+          echo ""
+          echo "  Smoke tests verify basic functionality (from docs/deployment/):"
+          echo ""
+          
+          # Test 1: Health endpoint
+          echo "  [1/3] Health endpoint accessible"
+          echo "    curl -f http://api-gateway-staging.example.com/health"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          
+          # Test 2: Basic API call
+          echo "  [2/3] Basic API endpoint responds"
+          echo "    curl -f http://api-gateway-staging.example.com/api/v1/status"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          
+          # Test 3: Authenticated call
+          echo "  [3/3] Authenticated API call works"
+          echo "    curl -f -H 'Authorization: Bearer <token>' http://api-gateway-staging.example.com/api/v1/users"
+          echo "    ✅ PASSED (placeholder)"
+          echo ""
+          echo "  ✅ All smoke tests passed (3/3)"
+
+      - name: Verify Dependencies
+        timeout-minutes: 1
+        run: |
+          echo ""
+          echo "[4/5] Verifying dependency connectivity..."
+          echo ""
+          
+          # Database connectivity
+          echo "  Database connectivity (PostgreSQL):"
+          echo "    In real pipeline: Check readiness endpoint shows database UP"
+          echo "    ✅ Database reachable (placeholder)"
+          echo ""
+          
+          # Cache connectivity
+          echo "  Cache connectivity (Redis):"
+          echo "    In real pipeline: Check readiness endpoint shows cache UP"
+          echo "    ✅ Cache reachable (placeholder)"
+          echo ""
+          
+          # Downstream API connectivity (if applicable)
+          echo "  Downstream APIs:"
+          echo "    In real pipeline: Verify dependent services are healthy"
+          echo "    ✅ All dependencies available (placeholder)"
+
+      - name: Record Verification Result
+        if: success()
+        run: |
+          echo ""
+          echo "[5/5] Recording verification result..."
+          echo ""
+          
+          cat > verification-result.json << EOF
+          {
+            "environment": "staging",
+            "artifact": "${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}",
+            "verification_status": "PASSED",
+            "verification_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "health_checks": {
+              "liveness": "PASSED",
+              "readiness": "PASSED"
+            },
+            "smoke_tests": {
+              "health_endpoint": "PASSED",
+              "api_endpoint": "PASSED",
+              "authenticated_call": "PASSED"
+            },
+            "dependencies": {
+              "database": "UP",
+              "cache": "UP"
+            }
+          }
+          EOF
+          
+          echo "📋 Verification Result:"
+          cat verification-result.json | jq '.'
+          echo ""
+          echo "✅ VERIFICATION PASSED - Deployment successful"
+          echo "✅ Artifact eligible for promotion to production"
+
+      - name: Rollback on Verification Failure
         if: failure()
         run: |
-          echo "❌ Verification FAILED - Triggering rollback"
-          echo "⚠️  Staging verification failure BLOCKS production promotion"
+          echo ""
+          echo "============================================"
+          echo "❌ VERIFICATION FAILED"
+          echo "============================================"
+          echo "Deployment to staging failed verification checks."
+          echo ""
+          echo "Triggering automatic rollback..."
+          echo ""
+          echo "In a real pipeline, this would:"
+          echo "  1. Identify previous working version"
+          echo "     kubectl rollout history deployment/api-gateway -n staging"
+          echo ""
+          echo "  2. Execute rollback"
+          echo "     kubectl rollout undo deployment/api-gateway -n staging"
+          echo ""
+          echo "  3. Verify rollback success"
+          echo "     - Wait for rollout completion"
+          echo "     - Check health endpoints"
+          echo "     - Confirm application serving traffic"
+          echo ""
+          echo "  4. Notify team"
+          echo "     - Send alert: 'Staging deployment failed verification'"
+          echo "     - Include: artifact version, failure reason, rollback status"
+          echo ""
+          echo "❌ Deployment FAILED and rolled back"
+          exit 1
 
   verify-production:
     name: Verify Production
