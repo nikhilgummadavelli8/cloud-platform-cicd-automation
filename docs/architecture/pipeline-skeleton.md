@@ -174,10 +174,10 @@ Expected behavior:
 
 After the skeleton is validated:
 
-1. **Day 4**: Replace build placeholders with real Dockerfile and containerization
-2. **Day 5**: Integrate Terraform for infrastructure deployment
-3. **Day 6**: Add OIDC authentication and Azure integration
-4. **Day 7**: Convert skeleton to reusable workflow template
-5. **Day 8+**: Application teams create pipelines based on skeleton
+1. **Build Implementation**: Replace build placeholders with real Dockerfile and containerization
+2. **Infrastructure Integration**: Integrate Terraform for infrastructure deployment
+3. **Cloud Authentication**: Add OIDC authentication and Azure integration
+4. **Template Conversion**: Convert skeleton to reusable workflow template
+5. **Application Onboarding**: Application teams create pipelines based on skeleton
 
 The skeleton is the foundation. All future work extends it.
