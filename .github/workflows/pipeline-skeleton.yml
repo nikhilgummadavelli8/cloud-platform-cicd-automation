@@ -55,6 +55,9 @@ jobs:
       
       # Optional: Run security scan (default: true)
       run_security_scan: true
+    
+    # Pass secrets to reusable workflow (required for Azure OIDC)
+    secrets: inherit
 
 # ===========================================================================
 # WHAT HAPPENS AUTOMATICALLY
