@@ -249,58 +249,186 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [validate, security-enforcement]
     outputs:
       artifact_version: ${{ steps.version.outputs.version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
+      image_digest: ${{ steps.version.outputs.image_digest }}
+      artifact_registry: ${{ steps.version.outputs.artifact_registry }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Version
+      - name: Generate Immutable Version (Enforcement)
         id: version
         run: |
-          # Semantic versioning based on commit SHA and timestamp
+          # IMMUTABLE versioning based on commit SHA (from docs/artifacts/artifact-standards.md)
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          VERSION="1.0.0-${SHORT_SHA}-${TIMESTAMP}"
+          
+          # Semantic version for releases (future: tag-based)
+          VERSION="1.0.0-${SHORT_SHA}"
+          
+          # Image tag: commit SHA (immutable, traceable)
           IMAGE_TAG="${SHORT_SHA}"
+          
+          # Placeholder for image digest (will be set after build)
+          IMAGE_DIGEST="sha256:placeholder"
+          
+          # Artifact registry (Azure Container Registry)
+          ARTIFACT_REGISTRY="myregistry.azurecr.io"
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "artifact_registry=$ARTIFACT_REGISTRY" >> $GITHUB_OUTPUT
+          
+          echo "============================================"
+          echo "ARTIFACT VERSIONING (from docs/artifacts/)"
+          echo "============================================"
           echo "📦 Artifact version: $VERSION"
-          echo "🐳 Container image tag: $IMAGE_TAG"
+          echo "🐳 Container image tag: $IMAGE_TAG (immutable, commit-based)"
+          echo "🔒 No mutable tags: latest, dev, prod (prohibited)"
+          echo "✅ Traceability: Tag links directly to commit ${{ github.sha }}"
 
-      - name: Build Stage (Placeholder)
+      - name: Enforce Immutability (No Mutable Tags)
+        run: |
+          IMAGE_TAG="${{ steps.version.outputs.image_tag }}"
+          
+          # Prohibited tags (from docs/artifacts/artifact-standards.md)
+          PROHIBITED_TAGS=("latest" "dev" "staging" "prod" "main" "master")
+          
+          for tag in "${PROHIBITED_TAGS[@]}"; do
+            if [[ "$IMAGE_TAG" == "$tag" ]]; then
+              echo "❌ BLOCKED: Tag '$IMAGE_TAG' is prohibited (mutable, non-traceable)"
+              echo "Allowed tags: commit SHA, semantic version (e.g., 7a3f9c2, 1.2.3)"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Image tag '$IMAGE_TAG' is immutable and traceable"
+
+      - name: Build Container Image (Placeholder)
         run: |
           echo "============================================"
-          echo "BUILD STAGE"
+          echo "BUILD ARTIFACT"
           echo "============================================"
-          echo "This is a placeholder for actual build logic"
+          IMAGE="${{ steps.version.outputs.artifact_registry }}/api-gateway:${{ steps.version.outputs.image_tag }}"
+          
+          echo "Building container image: $IMAGE"
           echo ""
           echo "In a real pipeline, this stage would:"
-          echo "  - Compile source code"
-          echo "  - Resolve dependencies"
-          echo "  - Build container image"
-          echo "  - Tag image with version: ${{ steps.version.outputs.image_tag }}"
-          echo "  - Push to artifact registry"
+          echo "  - docker build -t $IMAGE ."
+          echo "  - Embed OCI labels (metadata for traceability)"
+          echo "  - Validate base image is approved"
           echo ""
-          echo "✅ Build stage completed (placeholder)"
+          echo "✅ Build completed (placeholder)"
 
-      - name: Upload Build Metadata
+      - name: Generate Artifact Metadata (Traceability)
         run: |
-          mkdir -p build-output
-          cat > build-output/metadata.json << EOF
+          echo "============================================"
+          echo "ARTIFACT METADATA GENERATION"
+          echo "============================================"
+          
+          # Required metadata (from docs/artifacts/artifact-standards.md)
+          mkdir -p artifact-metadata
+          
+          cat > artifact-metadata/manifest.json << EOF
           {
-            "version": "${{ steps.version.outputs.version }}",
-            "image_tag": "${{ steps.version.outputs.image_tag }}",
-            "commit_sha": "${{ github.sha }}",
-            "branch": "${{ github.ref_name }}",
-            "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "artifact": {
+              "name": "api-gateway",
+              "version": "${{ steps.version.outputs.version }}",
+              "type": "container-image",
+              "registry": "${{ steps.version.outputs.artifact_registry }}/api-gateway:${{ steps.version.outputs.image_tag }}",
+              "digest": "${{ steps.version.outputs.image_digest }}"
+            },
+            "source": {
+              "repository": "${{ github.repository }}",
+              "repository_url": "https://github.com/${{ github.repository }}",
+              "commit": "${{ github.sha }}",
+              "commit_short": "${{ steps.version.outputs.image_tag }}",
+              "branch": "${{ github.ref_name }}",
+              "commit_message": "${{ github.event.head_commit.message }}",
+              "commit_author": "${{ github.event.head_commit.author.name }}"
+            },
+            "build": {
+              "pipeline_run_id": "${{ github.run_id }}",
+              "pipeline_run_number": "${{ github.run_number }}",
+              "pipeline_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "builder": "GitHub Actions",
+              "runner_os": "${{ runner.os }}"
+            },
+            "traceability": {
+              "forward_trace": "commit → artifact → environment",
+              "reverse_trace": "environment → artifact → commit",
+              "rollback_target": "previous artifact version from deployment history"
+            }
           }
           EOF
-          cat build-output/metadata.json
+          
+          echo "📋 Artifact Metadata Generated:"
+          cat artifact-metadata/manifest.json | jq '.'
+          
+          echo ""
+          echo "✅ Metadata includes:"
+          echo "   - Source: commit SHA, repository, author"
+          echo "   - Build: pipeline run ID, timestamp, builder"
+          echo "   - Traceability: forward/reverse trace capabilities"
+
+      - name: Validate Metadata Completeness (Enforcement)
+        run: |
+          echo "============================================"
+          echo "METADATA VALIDATION"
+          echo "============================================"
+          
+          # Required fields (from docs/artifacts/artifact-standards.md)
+          REQUIRED_FIELDS=(
+            ".source.commit"
+            ".source.repository"
+            ".build.pipeline_run_id"
+            ".build.build_timestamp"
+          )
+          
+          METADATA_FILE="artifact-metadata/manifest.json"
+          
+          for field in "${REQUIRED_FIELDS[@]}"; do
+            value=$(jq -r "$field" "$METADATA_FILE")
+            if [[ -z "$value" || "$value" == "null" ]]; then
+              echo "❌ BLOCKED: Required metadata field '$field' is missing"
+              echo "Artifacts without required metadata must not be deployable"
+              exit 1
+            fi
+            echo "✅ $field: $value"
+          done
+          
+          echo ""
+          echo "✅ All required metadata present"
+
+      - name: Publish Artifact (Placeholder)
+        run: |
+          echo "============================================"
+          echo "ARTIFACT PUBLICATION"
+          echo "============================================"
+          IMAGE="${{ steps.version.outputs.artifact_registry }}/api-gateway:${{ steps.version.outputs.image_tag }}"
+          
+          echo "Publishing artifact to registry..."
+          echo "  Image: $IMAGE"
+          echo "  Metadata: artifact-metadata/manifest.json"
+          echo ""
+          echo "In a real pipeline, this stage would:"
+          echo "  - docker push $IMAGE"
+          echo "  - Upload metadata manifest to registry or artifact store"
+          echo "  - Verify artifact is immutable (cannot overwrite existing tag)"
+          echo ""
+          echo "✅ Artifact published (placeholder)"
+          echo ""
+          echo "📦 Artifact is now:"
+          echo "   - Immutable (tag cannot be changed)"
+          echo "   - Traceable (linked to commit ${{ github.sha }})"
+          echo "   - Auditable (metadata includes build details)"
+          echo "   - Ready for deployment to dev, staging, production"
 
   # ============================================================================
   # STAGE 2: TEST
@@ -411,8 +539,13 @@ jobs:
           echo "============================================"
           echo "DEPLOY STAGE - DEVELOPMENT"
           echo "============================================"
-          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
-          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo "Deploying artifact: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
+          echo "Artifact version: ${{ needs.build.outputs.artifact_version }}"
+          echo ""
+          echo "📦 ARTIFACT CONSUMPTION (from docs/artifacts/):"
+          echo "   - Consuming pre-built artifact (NOT rebuilding from source)"
+          echo "   - Artifact is immutable (built once, deployed to all envs)"
+          echo "   - Image tag: ${{ needs.build.outputs.image_tag }} (traceable to commit)"
           echo ""
           echo "🔐 Authentication: OIDC (from docs/security/identity-and-authentication.md)"
           echo "   - No static credentials required"
@@ -421,11 +554,13 @@ jobs:
           echo ""
           echo "In a real pipeline, this stage would:"
           echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
-          echo "  - Deploy to AKS using Helm"
+          echo "  - Pull artifact from ACR: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
+          echo "  - Deploy to AKS using Helm (artifact digest for immutability)"
           echo "  - Retrieve secrets from Key Vault using OIDC"
           echo "  - Apply infrastructure changes via Terraform"
           echo ""
-          echo "✅ Deployment to Development completed (placeholder)"
+          echo "❌ PROHIBITED: Rebuilding from source in deploy stage"
+          echo "✅ Deployment to Development completed (artifact consumed)"
 
   deploy-staging:
     name: Deploy to Staging
@@ -447,19 +582,25 @@ jobs:
           echo "============================================"
           echo "DEPLOY STAGE - STAGING"
           echo "============================================"
-          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
-          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo "Deploying artifact: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
+          echo "Artifact version: ${{ needs.build.outputs.artifact_version }}"
+          echo ""
+          echo "📦 ARTIFACT PROMOTION (from docs/artifacts/):"
+          echo "   - Same artifact as deployed to dev: ${{ needs.build.outputs.image_tag }}"
+          echo "   - NO rebuild (immutable artifact, tested in dev)"
+          echo "   - What's tested in dev is what's deployed to staging"
           echo ""
           echo "🔐 Authentication: OIDC (federated identity → staging)"
           echo "   - Access token scoped to: staging subscription, AKS cluster"
           echo ""
           echo "In a real pipeline, this stage would:"
           echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
+          echo "  - Pull same artifact from ACR: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
           echo "  - Deploy to AKS staging cluster using Helm"
           echo "  - Retrieve secrets from Key Vault (staging) using OIDC"
           echo "  - Apply infrastructure changes via Terraform"
           echo ""
-          echo "✅ Deployment to Staging completed (placeholder)"
+          echo "✅ Deployment to Staging completed (same artifact promoted)"
 
   deploy-production:
     name: Deploy to Production
@@ -490,8 +631,14 @@ jobs:
           echo "============================================"
           echo "DEPLOY STAGE - PRODUCTION"
           echo "============================================"
-          echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
-          echo "Image tag: ${{ needs.build.outputs.image_tag }}"
+          echo "Deploying artifact: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
+          echo "Artifact version: ${{ needs.build.outputs.artifact_version }}"
+          echo ""
+          echo "📦 PRODUCTION ARTIFACT PROMOTION (from docs/artifacts/):"
+          echo "   - SAME artifact as dev and staging: ${{ needs.build.outputs.image_tag }}"
+          echo "   - Artifact validated in dev + staging before production"
+          echo "   - NO rebuild for production (rebuilding is prohibited)"
+          echo "   - Byte-for-byte identical to tested artifact"
           echo ""
           echo "🔐 Authentication: OIDC (federated identity → production)"
           echo "   - Manual approval REQUIRED (enforced by GitHub environment)"
@@ -500,11 +647,12 @@ jobs:
           echo ""
           echo "In a real pipeline, this stage would:"
           echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
+          echo "  - Pull validated artifact from ACR: ${{ needs.build.outputs.artifact_registry }}/api-gateway:${{ needs.build.outputs.image_tag }}"
           echo "  - Deploy to AKS production cluster using Helm"
           echo "  - Use blue-green or canary deployment strategy"
           echo "  - Retrieve secrets from Key Vault (production) using OIDC"
           echo ""
-          echo "✅ Deployment to Production completed (placeholder)"
+          echo "✅ Deployment to Production completed (validated artifact promoted)"
 
   # ============================================================================
   # STAGE 5: VERIFY
