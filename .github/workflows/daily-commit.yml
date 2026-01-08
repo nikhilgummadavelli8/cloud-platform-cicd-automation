@@ -1,0 +1,45 @@
+name: Daily Auto Commit
+
+on:
+  schedule:
+    # Runs every day at 11:59 PM UTC (adjust timezone as needed)
+    - cron: '59 23 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  auto-commit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected"
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git commit -m "chore: daily auto-commit on $(date +'%Y-%m-%d')"
+          git push
+      
+      - name: No changes
+        if: steps.check_changes.outputs.has_changes == 'false'
+        run: echo "Repository is up to date, no commit needed"
