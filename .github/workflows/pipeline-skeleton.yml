@@ -126,6 +126,124 @@ jobs:
           echo "⚠️  Manual approval required (enforced by environment protection rules)"
 
   # ============================================================================
+  # SECURITY ENFORCEMENT: OIDC & SECRETS
+  # ============================================================================
+  security-enforcement:
+    name: Security Enforcement - OIDC and Secrets
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect Static Credentials (Enforcement)
+        run: |
+          echo "============================================"
+          echo "SECURITY ENFORCEMENT"
+          echo "============================================"
+          echo "Checking for prohibited authentication methods..."
+          echo ""
+          
+          # Enforce: No repository secrets for Azure authentication
+          # This is a placeholder guard that will be implemented with actual checks
+          
+          echo "✅ OIDC Authentication Model"
+          echo "   - Pipelines authenticate using OpenID Connect (OIDC)"
+          echo "   - No static credentials stored in repository"
+          echo "   - No client secrets or API keys for cloud access"
+          echo ""
+          
+          echo "❌ PROHIBITED (from docs/security/):"
+          echo "   - Static service principal secrets"
+          echo "   - Long-lived credentials in GitHub secrets"
+          echo "   - Shared credentials across pipelines"
+          echo "   - API keys for Azure authentication"
+          echo ""
+          
+          # Future implementation will scan for:
+          # - References to AZURE_CLIENT_SECRET (prohibited)
+          # - References to AZURE_PASSWORD (prohibited)
+          # - Any usage of repository secrets for cloud auth
+          
+          echo "🔒 Enforcement Status: PLACEHOLDER"
+          echo "   Real implementation will fail pipeline if static credentials detected"
+
+      - name: Validate OIDC Prerequisites (Placeholder)
+        run: |
+          echo "============================================"
+          echo "OIDC AUTHENTICATION VALIDATION"
+          echo "============================================"
+          echo ""
+          echo "Validating OIDC authentication configuration..."
+          echo ""
+          
+          # In real implementation, this step would validate:
+          # 1. Federated identity credential exists in Azure AD
+          # 2. Repository is authorized for OIDC
+          # 3. Environment-specific trust is configured
+          
+          echo "📋 OIDC Configuration (from docs/security/identity-and-authentication.md):"
+          echo "   - Issuer: https://token.actions.githubusercontent.com"
+          echo "   - Audience: api://AzureADTokenExchange"
+          echo "   - Subject: repo:${{ github.repository }}:environment:<env>"
+          echo ""
+          
+          echo "✅ OIDC prerequisites validated (placeholder)"
+          echo "   Real implementation will verify Azure AD federated identity credential"
+
+      - name: Enforce No Hardcoded Secrets in Code
+        run: |
+          echo "============================================"
+          echo "SECRET SCANNING"
+          echo "============================================"
+          echo ""
+          
+          # Check for common secret patterns (basic placeholder)
+          echo "Scanning for hardcoded secrets in source code..."
+          
+          # Future implementation will use:
+          # - GitHub Secret Scanning (automatic)
+          # - gitleaks or trufflehog (in pipeline)
+          # - Custom regex for Azure-specific patterns
+          
+          echo ""
+          echo "✅ No hardcoded secrets detected (placeholder)"
+          echo "   Real implementation will scan with gitleaks/trufflehog"
+          echo ""
+          echo "Reminder (from docs/security/secrets-management.md):"
+          echo "   - Secrets stored in Azure Key Vault ONLY"
+          echo "   - Secrets consumed at runtime, never persisted"
+          echo "   - GitHub secrets permitted ONLY for non-cloud auth (e.g., Slack webhooks)"
+
+      - name: Document Authentication Flow
+        run: |
+          echo "============================================"
+          echo "AUTHENTICATION FLOW (OIDC-BASED)"
+          echo "============================================"
+          echo ""
+          echo "Documented authentication flow (from docs/security/):"
+          echo ""
+          echo "1. Pipeline requests OIDC token from GitHub"
+          echo "   └─ No secrets required (client-id, tenant-id are public)"
+          echo ""
+          echo "2. GitHub issues short-lived JWT token"
+          echo "   └─ Token contains: repo, workflow, environment"
+          echo ""
+          echo "3. Pipeline presents token to Azure AD"
+          echo "   └─ Azure validates: issuer, audience, subject, expiration"
+          echo ""
+          echo "4. Azure AD issues access token"
+          echo "   └─ Token scoped to: subscription, resource group, RBAC role"
+          echo ""
+          echo "5. Pipeline uses access token for cloud operations"
+          echo "   └─ Token expires automatically (no cleanup needed)"
+          echo ""
+          echo "✅ Zero static credentials required"
+          echo "✅ Zero secret rotation needed"
+          echo "✅ Zero credential leakage risk"
+
+
+  # ============================================================================
   # STAGE 1: BUILD
   # ============================================================================
   build:
@@ -279,6 +397,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # OIDC Authentication (Placeholder)
+      # In real implementation, this step would use:
+      # - uses: azure/login@v1
+      #   with:
+      #     client-id: ${{ vars.AZURE_CLIENT_ID }}           # Public identifier, not secret
+      #     tenant-id: ${{ vars.AZURE_TENANT_ID }}           # Public identifier, not secret
+      #     subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }} # Public identifier, not secret
+      # No secrets required. Authentication via federated identity (OIDC).
+
       - name: Deploy to Development (Placeholder)
         run: |
           echo "============================================"
@@ -287,10 +414,15 @@ jobs:
           echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
           echo "Image tag: ${{ needs.build.outputs.image_tag }}"
           echo ""
+          echo "🔐 Authentication: OIDC (from docs/security/identity-and-authentication.md)"
+          echo "   - No static credentials required"
+          echo "   - Federated identity: repo → Azure AD → dev environment"
+          echo "   - Access token scoped to: dev subscription, AKS cluster"
+          echo ""
           echo "In a real pipeline, this stage would:"
-          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
           echo "  - Deploy to AKS using Helm"
-          echo "  - Update environment configuration"
+          echo "  - Retrieve secrets from Key Vault using OIDC"
           echo "  - Apply infrastructure changes via Terraform"
           echo ""
           echo "✅ Deployment to Development completed (placeholder)"
@@ -307,6 +439,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # OIDC Authentication (Placeholder)
+      # Same pattern as dev, but scoped to staging environment
+
       - name: Deploy to Staging (Placeholder)
         run: |
           echo "============================================"
@@ -315,10 +450,13 @@ jobs:
           echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
           echo "Image tag: ${{ needs.build.outputs.image_tag }}"
           echo ""
+          echo "🔐 Authentication: OIDC (federated identity → staging)"
+          echo "   - Access token scoped to: staging subscription, AKS cluster"
+          echo ""
           echo "In a real pipeline, this stage would:"
-          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
           echo "  - Deploy to AKS staging cluster using Helm"
-          echo "  - Update staging environment configuration"
+          echo "  - Retrieve secrets from Key Vault (staging) using OIDC"
           echo "  - Apply infrastructure changes via Terraform"
           echo ""
           echo "✅ Deployment to Staging completed (placeholder)"
@@ -344,6 +482,9 @@ jobs:
           echo ""
           echo "Production deployment proceeding..."
 
+      # OIDC Authentication (Placeholder)
+      # Production requires explicit approval + OIDC scoped to prod environment
+
       - name: Deploy to Production (Placeholder)
         run: |
           echo "============================================"
@@ -352,11 +493,16 @@ jobs:
           echo "Deploying version: ${{ needs.build.outputs.artifact_version }}"
           echo "Image tag: ${{ needs.build.outputs.image_tag }}"
           echo ""
+          echo "🔐 Authentication: OIDC (federated identity → production)"
+          echo "   - Manual approval REQUIRED (enforced by GitHub environment)"
+          echo "   - Access token scoped to: production subscription, AKS cluster"
+          echo "   - Least privilege: deployer role only (not admin)"
+          echo ""
           echo "In a real pipeline, this stage would:"
-          echo "  - Authenticate to Azure using OIDC"
+          echo "  - Authenticate to Azure using OIDC (azure/login@v1)"
           echo "  - Deploy to AKS production cluster using Helm"
           echo "  - Use blue-green or canary deployment strategy"
-          echo "  - Update production environment configuration"
+          echo "  - Retrieve secrets from Key Vault (production) using OIDC"
           echo ""
           echo "✅ Deployment to Production completed (placeholder)"
 
