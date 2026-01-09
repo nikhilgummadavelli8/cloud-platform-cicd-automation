@@ -95,16 +95,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Create tag message
-          TAG_MSG="Platform Release ${VERSION}
+          # Create tag message using heredoc
+          TAG_MSG=$(cat <<-END
+          Platform Release ${VERSION}
           
-Automatically created by platform-release workflow.
-Source: platform-version.txt
-
-Release Notes:
-- Platform version: ${VERSION}
-- Commit: ${{ github.sha }}
-- Triggered by: ${{ github.actor }}"
+          Automatically created by platform-release workflow.
+          Source: platform-version.txt
+          
+          Release Notes:
+          - Platform version: ${VERSION}
+          - Commit: ${{ github.sha }}
+          - Triggered by: ${{ github.actor }}
+          END
+          )
           
           # Create annotated tag
           git tag -a "$TAG" -m "$TAG_MSG"
