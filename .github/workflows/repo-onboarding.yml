@@ -1,0 +1,232 @@
+name: Repository Onboarding Validation
+
+# Self-service platform onboarding
+# Validates that repositories meet platform requirements
+# No manual approval needed - automated compliance checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_name:
+        description: 'Repository name to onboard (e.g., my-app)'
+        required: true
+        type: string
+      owner:
+        description: 'Repository owner/organization'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-onboarding:
+    name: Validate Repository for Platform Onboarding
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Platform Repository
+        uses: actions/checkout@v4
+      
+      - name: Validate Inputs
+        run: |
+          echo "============================================"
+          echo "REPOSITORY ONBOARDING VALIDATION"
+          echo "============================================"
+          echo ""
+          echo "Repository: ${{ inputs.owner }}/${{ inputs.repo_name }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          echo ""
+          
+          # Validate inputs are not empty
+          if [ -z "${{ inputs.repo_name }}" ]; then
+            echo "❌ ERROR: repo_name is required"
+            exit 1
+          fi
+          
+          if [ -z "${{ inputs.owner }}" ]; then
+            echo "❌ ERROR: owner is required"
+            exit 1
+          fi
+          
+          echo "✅ Inputs validated"
+      
+      - name: Check Repository Exists
+        id: check_repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Checking if repository exists..."
+          
+          REPO="${{ inputs.owner }}/${{ inputs.repo_name }}"
+          
+          # Check if repo exists using GitHub CLI
+          if gh repo view "$REPO" --json name >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Repository exists: $REPO"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Repository not found: $REPO"
+            echo ""
+            echo "Possible reasons:"
+            echo "  1. Repository doesn't exist"
+            echo "  2. Repository is private and GitHub Actions doesn't have access"
+            echo "  3. Repository name or owner is incorrect"
+            echo ""
+            exit 1
+          fi
+      
+      - name: Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.owner }}/${{ inputs.repo_name }}
+          path: target-repo
+          token: ${{ github.token }}
+      
+      - name: Check Required Files
+        id: check_files
+        run: |
+          echo "Checking required files..."
+          
+          cd target-repo
+          
+          MISSING_FILES=()
+          
+          # Check for app pipeline workflow
+          if [ ! -f ".github/workflows/app-pipeline.yml" ]; then
+            MISSING_FILES+=(".github/workflows/app-pipeline.yml")
+          fi
+          
+          # Check for CODEOWNERS
+          if [ ! -f "CODEOWNERS" ] && [ ! -f ".github/CODEOWNERS" ]; then
+            MISSING_FILES+=("CODEOWNERS (or .github/CODEOWNERS)")
+          fi
+          
+          if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+            echo "missing=true" >> $GITHUB_OUTPUT
+            echo "❌ Missing required files:"
+            for file in "${MISSING_FILES[@]}"; do
+              echo "  - $file"
+            done
+            echo ""
+            echo "Required files for platform onboarding:"
+            echo "  - .github/workflows/app-pipeline.yml (application CI/CD workflow)"
+            echo "  - CODEOWNERS or .github/CODEOWNERS (code ownership)"
+            echo ""
+            exit 1
+          else
+            echo "missing=false" >> $GITHUB_OUTPUT
+            echo "✅ All required files present"
+          fi
+      
+      - name: Run Validation Script
+        id: validate
+        run: |
+          echo "Running detailed validation..."
+          
+          # Make validation script executable
+          chmod +x scripts/validate-repo.sh
+          
+          # Run validation script
+          ./scripts/validate-repo.sh target-repo
+          
+          echo "validation_passed=true" >> $GITHUB_OUTPUT
+      
+      - name: Check Branch Protection
+        id: check_protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Checking branch protection..."
+          
+          REPO="${{ inputs.owner }}/${{ inputs.repo_name }}"
+          
+          # Get default branch
+          DEFAULT_BRANCH=$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')
+          echo "Default branch: $DEFAULT_BRANCH"
+          
+          # Check if branch protection is enabled
+          if gh api "repos/$REPO/branches/$DEFAULT_BRANCH/protection" >/dev/null 2>&1; then
+            echo "protection=true" >> $GITHUB_OUTPUT
+            echo "✅ Branch protection enabled on $DEFAULT_BRANCH"
+          else
+            echo "protection=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Branch protection NOT enabled on $DEFAULT_BRANCH"
+            echo ""
+            echo "RECOMMENDATION: Enable branch protection for production readiness"
+            echo ""
+            echo "To enable:"
+            echo "  1. Go to repository Settings"
+            echo "  2. Navigate to Branches"
+            echo "  3. Add branch protection rule for $DEFAULT_BRANCH"
+            echo "  4. Enable:"
+            echo "     - Require pull request reviews"
+            echo "     - Require status checks to pass"
+            echo ""
+            # Note: Not failing, just warning
+          fi
+      
+      - name: Generate Onboarding Report
+        if: always()
+        run: |
+          echo "Generating onboarding report..."
+          
+          # Create report JSON
+          cat > onboarding-report.json <<EOF
+          {
+            "repo_name": "${{ inputs.repo_name }}",
+            "owner": "${{ inputs.owner }}",
+            "full_name": "${{ inputs.owner }}/${{ inputs.repo_name }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "triggered_by": "${{ github.actor }}",
+            "validation_results": {
+              "repo_exists": ${{ steps.check_repo.outputs.exists || 'false' }},
+              "required_files_present": ${{ steps.check_files.outputs.missing == 'false' || 'false' }},
+              "validation_script_passed": ${{ steps.validate.outputs.validation_passed || 'false' }},
+              "branch_protection_enabled": ${{ steps.check_protection.outputs.protection || 'false' }}
+            },
+            "overall_status": "${{ job.status }}",
+            "conclusion": "${{ job.status == 'success' && 'APPROVED' || 'REJECTED' }}"
+          }
+          EOF
+          
+          echo "Report generated: onboarding-report.json"
+          cat onboarding-report.json
+      
+      - name: Upload Onboarding Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-report-${{ inputs.owner }}-${{ inputs.repo_name }}
+          path: onboarding-report.json
+          retention-days: 90
+      
+      - name: Onboarding Summary
+        if: always()
+        run: |
+          echo "### 📋 Repository Onboarding Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`${{ inputs.owner }}/${{ inputs.repo_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status == 'success' && '✅ APPROVED' || '❌ REJECTED' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository Exists | ${{ steps.check_repo.outputs.exists == 'true' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Required Files | ${{ steps.check_files.outputs.missing == 'false' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validation Script | ${{ steps.validate.outputs.validation_passed == 'true' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch Protection | ${{ steps.check_protection.outputs.protection == 'true' && '✅ Enabled' || '⚠️  Not Enabled' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**✅ Repository is ready for platform onboarding!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**❌ Repository does not meet platform requirements.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please review the validation errors above and address them before attempting onboarding again." >> $GITHUB_STEP_SUMMARY
+          fi
