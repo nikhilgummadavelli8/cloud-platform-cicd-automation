@@ -1070,6 +1070,49 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Validate Production Deployment Approver
+        run: |
+          echo "============================================"
+          echo "PRODUCTION DEPLOYMENT AUTHORIZATION"
+          echo "============================================"
+          echo ""
+          echo "Validating deployment authorization..."
+          echo ""
+          
+          # Define allowed production approvers
+          # Can be overridden via repository/organization variable PLATFORM_APPROVERS
+          DEFAULT_APPROVERS="platform-admin-1,platform-admin-2,platform-lead,nikhilgummadavelli8"
+          ALLOWED_APPROVERS="${{ vars.PLATFORM_APPROVERS || env.DEFAULT_APPROVERS }}"
+          
+          ACTOR="${{ github.actor }}"
+          
+          echo "Deployment triggered by: @$ACTOR"
+          echo ""
+          
+          # Check if actor is in approved list
+          if echo "$ALLOWED_APPROVERS" | grep -qE "(^|,)$ACTOR(,|$)"; then
+            echo "✅ AUTHORIZED: @$ACTOR is approved for production deployments"
+            echo ""
+            echo "Proceeding with production deployment..."
+          else
+            echo "❌ UNAUTHORIZED: @$ACTOR is NOT approved for production deployments"
+            echo ""
+            echo "Authorized production deployers:"
+            echo "$ALLOWED_APPROVERS" | tr ',' '\n' | while read -r approver; do
+              [ -n "$approver" ] && echo "  - @$approver"
+            done
+            echo ""
+            echo "To authorize additional users:"
+            echo "  1. Add repository variable PLATFORM_APPROVERS"
+            echo "  2. Set value to comma-separated list of GitHub usernames"
+            echo "  3. Example: user1,user2,user3"
+            echo ""
+            echo "This protection prevents unauthorized production deployments."
+            exit 1
+          fi
+        env:
+          DEFAULT_APPROVERS: "platform-admin-1,platform-admin-2,platform-lead,nikhilgummadavelli8"
 
       - name: Validate Promotion Eligibility (Enforcement)
         run: |

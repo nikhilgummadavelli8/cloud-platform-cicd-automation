@@ -1,0 +1,66 @@
+# Code Ownership and Review Requirements
+# This file defines who must approve changes to specific files/directories
+# GitHub automatically enforces these rules for pull requests
+
+# ==============================================================================
+# PLATFORM INFRASTRUCTURE - REQUIRES PLATFORM ADMIN APPROVAL
+# ==============================================================================
+# These are critical platform files that affect all consumers
+# Changes require approval from platform administrators
+
+# Terraform Infrastructure
+/infra/                                          @platform-admins
+
+# Core Platform Workflows
+/.github/workflows/cicd-platform.yml             @platform-admins
+/.github/workflows/platform-release.yml          @platform-admins
+/.github/workflows/approval-enforcement.yml      @platform-admins
+
+# Platform Scripts
+/scripts/                                        @platform-admins
+
+# Platform Version Control
+/platform-version.txt                            @platform-admins
+
+# ==============================================================================
+# PLATFORM DOCUMENTATION - PLATFORM TEAM
+# ==============================================================================
+# Documentation that describes platform behavior and standards
+
+/docs/                                           @platform-team
+/OPERATIONS.md                                   @platform-team
+/PLATFORM-BOUNDARIES.md                          @platform-team
+/ACTIVATION-CHECKLIST.md                         @platform-team
+/README.md                                       @platform-team
+
+# ==============================================================================
+# APPLICATION INTEGRATION - APP TEAMS CAN MODIFY
+# ==============================================================================
+# These files are examples/templates for application teams
+
+/.github/workflows/pipeline-skeleton.yml         @app-team
+/.github/workflows/repo-onboarding.yml           @app-team
+
+# ==============================================================================
+# OWNERSHIP CONFIGURATION
+# ==============================================================================
+# Default: Platform team owns everything not explicitly assigned
+*                                                @platform-team
+
+# ==============================================================================
+# NOTES FOR GITHUB SETUP
+# ==============================================================================
+# To enable CODEOWNERS enforcement:
+# 1. Go to repository Settings
+# 2. Navigate to Branches
+# 3. Edit branch protection rule for 'main'
+# 4. Enable: "Require review from Code Owners"
+# 5. Enable: "Dismiss stale pull request approvals when new commits are pushed"
+#
+# Team setup in GitHub:
+# - Create team: platform-admins (senior platform engineers)
+# - Create team: platform-team (all platform contributors)
+# - Create team: app-team (application developers integrating with platform)
+#
+# Without these teams configured, GitHub will show warnings
+# For now, replace with actual GitHub usernames if teams don't exist

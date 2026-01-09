@@ -1,0 +1,85 @@
+name: Approval Enforcement
+
+# Validates that pull requests touching protected platform code
+# are approved by authorized platform administrators
+# This enforces RBAC automatically via CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      # Protected platform paths
+      - '.github/workflows/cicd-platform.yml'
+      - '.github/workflows/platform-release.yml'
+      - 'infra/**'
+      - 'scripts/**'
+      - 'platform-version.txt'
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  validate-approvals:
+    name: Validate Platform Approvals
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Detect Protected File Changes
+        id: detect
+        run: |
+          echo "============================================"
+          echo "PROTECTED PLATFORM CODE CHANGE DETECTED"
+          echo "============================================"
+          echo ""
+          echo "PR #${{ github.event.pull_request.number }}"
+          echo "Author: ${{ github.event.pull_request.user.login }}"
+          echo "Title: ${{ github.event.pull_request.title }}"
+          echo ""
+          echo "This PR modifies protected platform files."
+          echo "Approval from platform administrators is REQUIRED."
+          echo ""
+      
+      - name: Validate Approvers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Running approval validation..."
+          
+          # Make validation script executable
+          chmod +x scripts/validate-approvers.sh
+          
+          # Run validation script
+          # Script will exit 1 if no valid approver found
+          ./scripts/validate-approvers.sh \
+            "${{ github.event.pull_request.number }}" \
+            "${{ github.repository }}"
+      
+      - name: Approval Summary
+        if: success()
+        run: |
+          echo "### ✅ Approval Validation Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR #${{ github.event.pull_request.number }}** has been approved by an authorized platform administrator." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Platform code changes are protected by RBAC enforcement." >> $GITHUB_STEP_SUMMARY
+      
+      - name: Approval Failure
+        if: failure()
+        run: |
+          echo "### ❌ Approval Validation Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR #${{ github.event.pull_request.number }}** does not have approval from an authorized platform administrator." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Required Action:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Request review from a platform administrator" >> $GITHUB_STEP_SUMMARY
+          echo "- Once approved, re-run this check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform administrators:**" >> $GITHUB_STEP_SUMMARY
+          echo "- @platform-admin-1" >> $GITHUB_STEP_SUMMARY
+          echo "- @platform-admin-2" >> $GITHUB_STEP_SUMMARY
+          echo "- @platform-lead" >> $GITHUB_STEP_SUMMARY
