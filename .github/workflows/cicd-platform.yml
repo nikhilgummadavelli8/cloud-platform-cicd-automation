@@ -167,6 +167,21 @@ jobs:
           echo "  - infra/ (Terraform infrastructure)"
           echo ""
           
+          # Allow repository owner to bypass during platform development
+          if [ "${{ github.actor }}" = "${{ github.repository_owner }}" ] || [ "${{ github.actor }}" = "nikhilgummadavelli8" ]; then
+            echo "✅ BYPASS: Repository owner/platform developer detected"
+            echo ""
+            echo "Actor: @${{ github.actor }}"
+            echo ""
+            echo "⚠️  NOTE: This bypass is for platform development only."
+            echo "Once the platform is deployed to other teams, consider:"
+            echo "  - Using PRs for all platform changes"
+            echo "  - Enabling full protection without bypasses"
+            echo ""
+            echo "Proceeding with platform development..."
+            exit 0
+          fi
+          
           # Check if this is a PR context
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "✅ Running in PR context (#${{ github.event.pull_request.number }})"
