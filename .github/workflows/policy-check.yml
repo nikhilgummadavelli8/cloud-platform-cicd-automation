@@ -1,0 +1,104 @@
+name: Policy Check
+
+# Policy-as-Code enforcement workflow
+# Validates that workflow changes comply with platform policies
+# Blocks merges on policy violations
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      # Run policy check when workflows or policies change
+      - '.github/workflows/**'
+      - 'policies/**'
+      - 'scripts/run-policy-check.sh'
+
+permissions:
+  contents: read
+  pull-requests: write  # To add comments on PR
+
+jobs:
+  policy-validation:
+    name: Validate Policies
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Install OPA
+        run: |
+          echo "============================================"
+          echo "INSTALLING OPA (OPEN POLICY AGENT)"
+          echo "============================================"
+          echo ""
+          
+          # Download OPA binary
+          OPA_VERSION="0.60.0"
+          curl -L -o opa "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          
+          # Make executable and move to PATH
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+          
+          # Verify installation
+          echo ""
+          echo "✅ OPA installed successfully"
+          opa version
+          echo ""
+      
+      - name: Install YAML to JSON Converter
+        run: |
+          echo "Installing yq for YAML to JSON conversion..."
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          echo "✅ yq installed"
+          yq --version
+      
+      - name: Run Policy Validation
+        id: policy_check
+        run: |
+          echo "============================================"
+          echo "RUNNING POLICY VALIDATION"
+          echo "============================================"
+          echo ""
+          
+          # Make script executable
+          chmod +x scripts/run-policy-check.sh
+          
+          # Run policy validation
+          # Script will exit 1 if violations found
+          ./scripts/run-policy-check.sh
+      
+      - name: Policy Validation Summary
+        if: success()
+        run: |
+          echo "### ✅ Policy Validation Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All workflows comply with platform policies." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Policies validated:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Pipeline structure (5 mandatory stages)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security standards (OIDC, no static secrets)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Artifact standards (immutable tagging)" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Policy Violation Report
+        if: failure()
+        run: |
+          echo "### ❌ Policy Validation Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Policy violations detected in workflow changes.**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Review the violations in the job output above and update workflows to comply with platform policies." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Common violations:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Missing mandatory stages (validate, build, test, security-scan, deploy)" >> $GITHUB_STEP_SUMMARY
+          echo "- Using static credentials instead of OIDC authentication" >> $GITHUB_STEP_SUMMARY
+          echo "- Using mutable tags (latest, dev, prod) instead of immutable tags" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**How to fix:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review policy files in \`policies/\` directory" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update workflows to comply with policies" >> $GITHUB_STEP_SUMMARY
+          echo "3. Test locally: \`bash scripts/run-policy-check.sh\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Push changes and re-run this check" >> $GITHUB_STEP_SUMMARY

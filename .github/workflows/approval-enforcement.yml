@@ -12,6 +12,8 @@ on:
       # Protected platform paths
       - '.github/workflows/cicd-platform.yml'
       - '.github/workflows/platform-release.yml'
+      - '.github/workflows/policy-check.yml'
+      - 'policies/**'
       - 'infra/**'
       - 'scripts/**'
       - 'platform-version.txt'
