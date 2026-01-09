@@ -1,0 +1,152 @@
+name: Platform Release Automation
+
+# Automatically create git tags based on platform-version.txt
+# Triggers on every push to main
+# Prevents tag collisions and human error
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write  # Required to create and push tags
+
+jobs:
+  auto-release:
+    name: Automated Version Tagging
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history and tags
+      
+      - name: Read Platform Version
+        id: version
+        run: |
+          if [ ! -f platform-version.txt ]; then
+            echo "❌ ERROR: platform-version.txt not found!"
+            echo "Create this file at repo root with semantic version (e.g., 1.0.0)"
+            exit 1
+          fi
+          
+          VERSION=$(cat platform-version.txt | tr -d '[:space:]')
+          
+          # Validate version format (basic semantic versioning)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ ERROR: Invalid version format in platform-version.txt"
+            echo "Expected: MAJOR.MINOR.PATCH (e.g., 1.0.0)"
+            echo "Found: $VERSION"
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          
+          echo "✅ Platform version: $VERSION"
+      
+      - name: Check if Tag Already Exists
+        id: check_tag
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          
+          # Fetch all tags from remote
+          git fetch --tags
+          
+          # Check if tag exists locally or remotely
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Tag $TAG already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✅ Tag $TAG does not exist yet"
+          fi
+      
+      - name: Fail if Tag Collision Detected
+        if: steps.check_tag.outputs.exists == 'true'
+        run: |
+          echo "============================================"
+          echo "❌ TAG COLLISION DETECTED"
+          echo "============================================"
+          echo ""
+          echo "Tag '${{ steps.version.outputs.tag }}' already exists."
+          echo ""
+          echo "This means version ${{ steps.version.outputs.version }} has already been released."
+          echo ""
+          echo "To create a new release:"
+          echo "  1. Update platform-version.txt to a new version (e.g., 1.0.1)"
+          echo "  2. Commit the change"
+          echo "  3. Push to main"
+          echo ""
+          echo "Do NOT manually delete or overwrite tags."
+          echo "Releases are immutable."
+          echo ""
+          exit 1
+      
+      - name: Create Git Tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create tag message
+          TAG_MSG="Platform Release ${VERSION}
+          
+Automatically created by platform-release workflow.
+Source: platform-version.txt
+
+Release Notes:
+- Platform version: ${VERSION}
+- Commit: ${{ github.sha }}
+- Triggered by: ${{ github.actor }}"
+          
+          # Create annotated tag
+          git tag -a "$TAG" -m "$TAG_MSG"
+          
+          echo "✅ Created tag: $TAG"
+      
+      - name: Push Tag to Origin
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          
+          git push origin "$TAG"
+          
+          echo "============================================"
+          echo "✅ PLATFORM RELEASE CREATED"
+          echo "============================================"
+          echo ""
+          echo "Release Tag: $TAG"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Commit: ${{ github.sha }}"
+          echo ""
+          echo "View release:"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          echo ""
+          echo "To create the next release:"
+          echo "  1. Update platform-version.txt"
+          echo "  2. Commit and push to main"
+          echo ""
+      
+      - name: Release Summary
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          echo "### 🎉 Platform Release ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${{ steps.version.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Created by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tag created and pushed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "- View release: [Releases Page](https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }})" >> $GITHUB_STEP_SUMMARY
+          echo "- Update consumers to use: \`uses: ${{ github.repository }}/.github/workflows/cicd-platform.yml@${{ steps.version.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
